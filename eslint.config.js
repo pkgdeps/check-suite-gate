@@ -44,7 +44,6 @@ export default [
         projectService: {
           allowDefaultProject: [
             '__fixtures__/*.ts',
-            '__tests__/*.ts',
             'eslint.config.js',
             'vitest.config.ts'
           ]

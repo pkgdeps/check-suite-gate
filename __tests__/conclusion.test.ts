@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { classify, type CheckRunLike } from '../src/conclusion.js'
 
-const make = (status: string, conclusion: string | null): CheckRunLike =>
-  ({ status, conclusion }) as CheckRunLike
+const make = (status: string, conclusion: string | null): CheckRunLike => ({
+  status,
+  conclusion
+})
 
 describe('classify', () => {
   it('treats success / skipped / neutral as green', () => {
@@ -27,7 +29,11 @@ describe('classify', () => {
     expect(classify(make('in_progress', null))).toBe('pending')
   })
 
-  it('treats unknown conclusion as red (safe default)', () => {
-    expect(classify(make('completed', 'stale' as never))).toBe('red')
+  it("treats stale and other non-spec'd conclusions as red (safe default)", () => {
+    // `stale` is a documented Checks API value (returned when a result has
+    // been superseded by a re-run). The spec doesn't enumerate it as green,
+    // so we conservatively treat it as red — same fallthrough applies to
+    // any future GitHub-added conclusion value.
+    expect(classify(make('completed', 'stale'))).toBe('red')
   })
 })
