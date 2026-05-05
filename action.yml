@@ -1,0 +1,43 @@
+name: check-suite-gate
+description: |
+  Aggregate check_suite results on the same commit into a single commit status.
+  Multi-workflow alls-green successor for monorepo + Renovate environments.
+author: azu
+
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  context:
+    description: 'Commit status context name to write'
+    required: false
+    default: 'check-suite-gate/all-passed'
+  ignore-apps:
+    description: 'Comma-separated GitHub App slugs whose check_runs are ignored (e.g. dependabot[bot])'
+    required: false
+    default: ''
+  ignore-checks:
+    description: 'Comma-separated check_run name patterns to ignore. Glob (* / ?) supported (e.g. optional-*,docs-only)'
+    required: false
+    default: ''
+  token:
+    description: 'GitHub token used to read checks and write commit status'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  state:
+    description: 'Aggregated status state written to the commit: one of pending, success, or failure'
+  total-checks:
+    description: 'Number of check_runs observed before filtering'
+  evaluated-checks:
+    description: 'Number of check_runs after filtering'
+  completed-checks:
+    description: 'Number of completed check_runs after filtering'
+  mode:
+    description: 'Evaluation mode used: normal (run_attempt == 1) or rescue (run_attempt > 1)'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
