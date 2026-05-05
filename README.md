@@ -1,5 +1,13 @@
 # check-suite-gate
 
+> **Status: archived — does not work as designed.**
+>
+> The v1 design assumes a workflow can be triggered by `check_suite.completed` events, but GitHub Actions explicitly prevents this for any check suite created by — or whose head SHA is associated with — GitHub Actions itself, as a recursion guard. As a result, in repos that only use GitHub Actions (the primary target of this project), the gate workflow is never invoked. This is documented in [Events that trigger workflows / check_suite](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#check_suite) and confirmed by the empirical test in [#2](https://github.com/pkgdeps/check-suite-gate/pull/2).
+>
+> Full post-mortem (Japanese): [docs/lessons/2026-05-05-check-suite-recursion-finding.md](docs/lessons/2026-05-05-check-suite-recursion-finding.md).
+>
+> A future revival would need to switch to `workflow_run` (which has no recursion restriction) or be re-implemented as a GitHub App receiving webhooks directly. The repository is left here for the design record and the implementation reference.
+
 A GitHub Action that aggregates all check results on the same commit into a single commit status, triggered by `check_suite.completed`. Designed as a **multi-workflow successor to `re-actors/alls-green`** for monorepo + Renovate environments, replacing `upsidr/merge-gatekeeper`'s polling-based design that occupies a runner for the entire CI duration.
 
 ## Why
