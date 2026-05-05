@@ -55,4 +55,42 @@ describe('applyFilters', () => {
   it('returns all runs when both filters are empty', () => {
     expect(applyFilters(runs, [], []).length).toBe(4)
   })
+
+  it('matches exact pattern with no glob metacharacters', () => {
+    const result = applyFilters(runs, [], ['build'])
+    expect(result.map((r) => r.name)).toEqual([
+      'dependabot-check',
+      'optional-flaky',
+      'docs-only'
+    ])
+  })
+
+  it('supports ? as a single-char wildcard', () => {
+    const r = [make('x', 'build-1'), make('x', 'build-12')]
+    expect(applyFilters(r, [], ['build-?']).map((x) => x.name)).toEqual([
+      'build-12'
+    ])
+  })
+
+  it('supports leading wildcards', () => {
+    const r = [
+      make('x', 'foo-build'),
+      make('x', 'bar-build'),
+      make('x', 'unrelated')
+    ]
+    expect(applyFilters(r, [], ['*-build']).map((x) => x.name)).toEqual([
+      'unrelated'
+    ])
+  })
+
+  it('matches across "/" (e.g. reusable-workflow names like "ci / lint")', () => {
+    const r = [
+      make('x', 'ci / lint'),
+      make('x', 'ci / build'),
+      make('x', 'unrelated')
+    ]
+    expect(applyFilters(r, [], ['ci*']).map((x) => x.name)).toEqual([
+      'unrelated'
+    ])
+  })
 })

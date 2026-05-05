@@ -19,8 +19,18 @@ export const parseList = (raw: string): string[] =>
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
 
-const matchesAnyGlob = (value: string, patterns: string[]): boolean =>
-  patterns.some((pattern) => path.matchesGlob(value, pattern))
+const matchesAnyGlob = (value: string, patterns: string[]): boolean => {
+  // path.matchesGlob is path-segment aware: '*' does not cross '/'.
+  // Check_run names from reusable workflows / matrix jobs often contain '/'
+  // (e.g. 'ci / lint'), and users expect 'ci*' to match those.
+  // Flatten by substituting '/' with a sentinel char absent from both
+  // names and glob patterns, on both the value and each pattern.
+  const SENTINEL = '\u0001'
+  const flat = value.replaceAll('/', SENTINEL)
+  return patterns.some((pattern) =>
+    path.matchesGlob(flat, pattern.replaceAll('/', SENTINEL))
+  )
+}
 
 export const applyFilters = (
   runs: AggregatedCheckRun[],
@@ -29,8 +39,6 @@ export const applyFilters = (
 ): AggregatedCheckRun[] =>
   runs.filter((run) => {
     if (ignoreApps.includes(run.app.slug)) return false
-    if (ignoreChecks.length > 0 && matchesAnyGlob(run.name, ignoreChecks)) {
-      return false
-    }
+    if (matchesAnyGlob(run.name, ignoreChecks)) return false
     return true
   })
