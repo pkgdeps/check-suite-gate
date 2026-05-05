@@ -229,7 +229,7 @@ generated されるが conclusion が `skipped` になるケースもあり、 �
 ### 内部実装
 
 - TypeScript + esbuild で bundle した JavaScript Action
-- `runs.using: node20`
+- `runs.using: node24` (GitHub Actions が公式サポートする最新 Node.js ランタイム)
 - `@octokit/rest` で listSuitesForRef / listForSuite / createCommitStatus
 - `minimatch` で `ignore-checks` の glob 評価
 - 状態は持たない (各 invocation 独立、 idempotent)
