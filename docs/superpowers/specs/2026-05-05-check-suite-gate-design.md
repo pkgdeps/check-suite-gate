@@ -93,7 +93,7 @@ jobs:
   aggregate:
     runs-on: ubuntu-latest
     steps:
-      - uses: azu/check-suite-gate@v1
+      - uses: pkgdeps/check-suite-gate@v1
         with:
           context: 'check-suite-gate/all-passed'
           # オプション
@@ -231,7 +231,7 @@ generated されるが conclusion が `skipped` になるケースもあり、 �
 - TypeScript + esbuild で bundle した JavaScript Action
 - `runs.using: node24` (GitHub Actions が公式サポートする最新 Node.js ランタイム)
 - `@octokit/rest` で listSuitesForRef / listForSuite / createCommitStatus
-- `minimatch` で `ignore-checks` の glob 評価
+- Node.js 標準の `path.matchesGlob(path, pattern)` で `ignore-checks` の glob 評価 (外部依存なし)
 - 状態は持たない (各 invocation 独立、 idempotent)
 
 ### permissions
