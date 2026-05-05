@@ -260,9 +260,18 @@ permissions:
 - `v1` のような major moving tag (新 patch/minor リリースのたびに同 commit を指すよう移動。 `actions/checkout@v4` 系と同じ慣習)
 - 利用者は `@v1` で pin することを推奨
 
-### major moving tag の自動更新
+### major moving tag の更新
 
-`actions/publish-action` を release 時の workflow で使う。 release が published されると、 release tag (例: `v1.2.3`) から major version (`v1`) tag を自動的に同じ commit に移動する。 自前で `git tag -f` を回すより安全。
+`actions/typescript-action` template が提供する `script/release` (local shell script) を maintainer が手元で実行する。 script は以下を行う:
+
+- 最新 semver tag を取得
+- 新 release tag (`vX.Y.Z` フォーマット) を validate
+- major version tag (`v1` 等) を新 release tag と同じ commit に移動
+- commit / tag / branch を remote に push
+
+自前で `git tag -f` を書くより安全で、 template 標準パターンに従う。 自動 workflow 化はしない (template が手動実行前提のため)。
+
+`actions/publish-action` (GitHub 内製の代替) は 2026-05 時点で alpha かつ内部利用専用 (issues disabled, external contributions not accepted) のため採用しない。
 
 将来的に GitHub の「Immutable Actions」 が GA になった段階で、 `actions/publish-immutable-action` への移行を検討する (v2 検討事項)。
 
