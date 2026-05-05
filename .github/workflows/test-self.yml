@@ -1,0 +1,33 @@
+name: test-self
+
+on:
+  check_suite:
+    types: [completed]
+
+permissions:
+  statuses: write
+  checks: read
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: gate-${{ github.event.check_suite.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: npm run build
+      - name: Self-host gate
+        uses: ./
+        with:
+          context: 'check-suite-gate/self-test'
+          ignore-checks: 'check-suite-gate/self-test'
