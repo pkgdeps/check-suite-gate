@@ -7,10 +7,6 @@
     "strict": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "outDir": "./lib",
-    "rootDir": "./src",
-    "declaration": false,
-    "sourceMap": true,
     "lib": ["ES2023"]
   },
   "include": ["src/**/*", "__tests__/**/*"],
