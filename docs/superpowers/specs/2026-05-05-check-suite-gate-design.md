@@ -228,8 +228,9 @@ generated されるが conclusion が `skipped` になるケースもあり、 �
 
 ### 内部実装
 
+- **`actions/typescript-action` template を base にする** (esbuild / vitest / ESLint / dist 整合性チェック workflow / dependabot 設定が初期から揃う)
 - TypeScript + esbuild で bundle した JavaScript Action
-- `runs.using: node24` (GitHub Actions が公式サポートする最新 Node.js ランタイム)
+- `runs.using: node24` (GitHub Actions が公式サポートする最新 Node.js ランタイム。 template 既定値が古ければ手動で更新)
 - `@octokit/rest` で listSuitesForRef / listForSuite / createCommitStatus
 - Node.js 標準の `path.matchesGlob(path, pattern)` で `ignore-checks` の glob 評価 (外部依存なし)
 - 状態は持たない (各 invocation 独立、 idempotent)
@@ -243,6 +244,36 @@ permissions:
   pull-requests: read # PR 関連メタデータ取得
   actions: read      # 自 job の check_run 識別 (details_url 経由)
 ```
+
+## 配布 / リリースフロー
+
+### bundle と commit
+
+- `npm run build` (esbuild) で TypeScript を 1 ファイルに bundle した `dist/index.js` を生成
+- **`dist/index.js` を git に commit する** (利用者は `node_modules` を install せずに使うため)
+- `action.yml` の `runs.main: dist/index.js` で指定
+- 利用者が `uses: pkgdeps/check-suite-gate@v1` で参照すると、 runner が repo を checkout して `node dist/index.js` を実行
+
+### tag 戦略
+
+- `v1.2.3` のような semver tag (固定、 release ごとに新規作成)
+- `v1` のような major moving tag (新 patch/minor リリースのたびに同 commit を指すよう移動。 `actions/checkout@v4` 系と同じ慣習)
+- 利用者は `@v1` で pin することを推奨
+
+### major moving tag の自動更新
+
+`actions/publish-action` を release 時の workflow で使う。 release が published されると、 release tag (例: `v1.2.3`) から major version (`v1`) tag を自動的に同じ commit に移動する。 自前で `git tag -f` を回すより安全。
+
+将来的に GitHub の「Immutable Actions」 が GA になった段階で、 `actions/publish-immutable-action` への移行を検討する (v2 検討事項)。
+
+### Marketplace 公開
+
+- 初回 release 作成時に「Publish this Action to the GitHub Marketplace」 にチェック
+- 1 回登録すれば以後の release は自動で marketplace 反映
+
+### dist の整合性チェック (CI)
+
+PR の CI で `npm run build` を実行後 `git diff --exit-code dist/` を走らせ、 source と dist が乖離していたら fail させる。 これにより「source は変えたが build を忘れた PR」 を検出する。
 
 ## テスト戦略
 
