@@ -2,6 +2,9 @@
 
 A GitHub Action that aggregates all check results on the same commit into a single commit status, triggered by `check_suite.completed`. Designed as a **multi-workflow successor to `re-actors/alls-green`** for monorepo + Renovate environments, replacing `upsidr/merge-gatekeeper`'s polling-based design that occupies a runner for the entire CI duration.
 
+<!-- Dogfood test PR: verify self-hosting test-self.yml writes the aggregated status. -->
+
+
 ## Why
 
 When you require status checks via branch protection or rulesets, you have two options: either register every individual check (which breaks down as workflows are added/removed dynamically by Renovate, Dependabot, or path filters), or register a single aggregated status. This Action implements the latter for the multi-workflow case where `re-actors/alls-green` cannot help.
