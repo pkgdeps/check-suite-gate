@@ -65,15 +65,15 @@ ignore-apps / ignore-checks で除外
        └─ 1 個でも failure / cancelled: failure を書く
 ```
 
-利用者は `.github/workflows/gate.yml` を 1 ファイル設置し、 ruleset で `check-suite-gate/all-passed` を required 登録するだけ。
+利用者は `.github/workflows/check-suite-gate.yaml` を 1 ファイル設置し、 ruleset で `check-suite-gate/all-passed` を required 登録するだけ。
 
 stuck したら集約 status クリック → 開いた gate workflow run page で **"Re-run all jobs"** ボタンを押すと、 `run_attempt > 1` の救出モードで再評価される。
 
 ### 利用者側の YAML
 
 ```yaml
-# .github/workflows/gate.yml
-name: gate
+# .github/workflows/check-suite-gate.yaml
+name: check-suite-gate
 
 on:
   check_suite:
@@ -306,7 +306,7 @@ workflow_run は workflow ファイル数だけ発火するため 1 PR あたり
 
 CF Worker 版なら GitHub Actions 課金がゼロ、 動的 check 追従が完全、 任意のロジックを書ける。 ただし GitHub App 登録、 PKCS#8 key 管理、 Cloudflare Worker / D1 セットアップが必要で、 数百行の実装コストが乗る。
 
-check-suite-gate は **GitHub Actions 内で完結する** ため `.github/workflows/gate.yml` 1 ファイルで導入できる。 CF Worker 版を書く前段として、 もしくは「外部サービスを増やしたくない」 ユーザー向けの選択肢として位置付ける。
+check-suite-gate は **GitHub Actions 内で完結する** ため `.github/workflows/check-suite-gate.yaml` 1 ファイルで導入できる。 CF Worker 版を書く前段として、 もしくは「外部サービスを増やしたくない」 ユーザー向けの選択肢として位置付ける。
 
 ## 段階的な開発
 
