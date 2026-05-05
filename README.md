@@ -1,12 +1,54 @@
 # check-suite-gate
 
-> **Status: archived — does not work as designed.**
+> ## ⚠️ Status: archived — does not work as designed
 >
-> The v1 design assumes a workflow can be triggered by `check_suite.completed` events, but GitHub Actions explicitly prevents this for any check suite created by — or whose head SHA is associated with — GitHub Actions itself, as a recursion guard. As a result, in repos that only use GitHub Actions (the primary target of this project), the gate workflow is never invoked. This is documented in [Events that trigger workflows / check_suite](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#check_suite) and confirmed by the empirical test in [#2](https://github.com/pkgdeps/check-suite-gate/pull/2).
+> This repository is preserved for the design record and the implementation reference. It does not function as a usable Action. Read this section before reading the rest of the README.
 >
-> Full post-mortem (Japanese): [docs/lessons/2026-05-05-check-suite-recursion-finding.md](docs/lessons/2026-05-05-check-suite-recursion-finding.md).
+> ### What was attempted
 >
-> A future revival would need to switch to `workflow_run` (which has no recursion restriction) or be re-implemented as a GitHub App receiving webhooks directly. The repository is left here for the design record and the implementation reference.
+> A GitHub Action that listens for `check_suite.completed` events and writes a single aggregated commit status to the same SHA. The intent was to give monorepos a "register one required status, let it dynamically follow whatever workflows / external CI / GitHub Apps exist on a PR" experience — a multi-workflow successor to [`re-actors/alls-green`](https://github.com/re-actors/alls-green), without the runner-occupying polling cost of [`upsidr/merge-gatekeeper`](https://github.com/upsidr/merge-gatekeeper).
+>
+> ### Why it does not work
+>
+> GitHub Actions has a hard restriction on the `check_suite` (and `check_run`) trigger that the design overlooked. From [Events that trigger workflows / check_suite](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#check_suite):
+>
+> > To prevent recursive workflows, this event does not trigger workflows if the check suite was created by GitHub Actions **or if the check suite's head SHA is associated with GitHub Actions.**
+>
+> The same wording appears verbatim under `check_run`. Two consequences:
+>
+> 1. **The check suite GitHub Actions itself produces never triggers a downstream workflow.** Any `on: check_suite` workflow listening to its own ci.yml's completion will never fire.
+> 2. **The "associated head SHA" clause likely extends the restriction to suites created by other GitHub Apps**, as long as the same SHA also has GitHub Actions activity on it. This was not empirically narrowed down here, but the [community discussion #26169](https://github.com/orgs/community/discussions/26169) consensus is that `on: check_suite` is effectively only useful when consumed by an external GitHub App via webhooks, not by an Actions workflow listening for it.
+>
+> The empirical confirmation is in [#2](https://github.com/pkgdeps/check-suite-gate/pull/2): on a PR where ci.yml ran and completed successfully, the self-hosted `test-self.yml` (configured `on: check_suite: types: [completed]`) **never fired even once** — `event=check_suite` shows zero workflow runs in the API. The aggregated commit status was never written.
+>
+> ### Where this leaves the design
+>
+> The recursion guard is by design and applies to both `check_suite` and `check_run`. The events that *do* trigger workflows in a GitHub-Actions-only repo are:
+>
+> | event | runs per PR (typical monorepo) | recursion guard | viable here? |
+> |---|---|---|---|
+> | `workflow_run` | one per workflow file (≈ 9) | none | ✅ |
+> | `check_suite` | one per GitHub App (≈ 3-5) | yes | ❌ |
+> | `check_run` | one per job (≈ 20+) | yes | ❌ |
+> | `status` | one per legacy commit status (≈ 0-3) | none | ✅ for legacy CI only |
+>
+> So `workflow_run` is the only event that could carry this design forward. It costs more billable minutes than `check_suite` would have (one trigger per workflow file rather than per App), but spec-style aggregation across separate workflow files remains achievable. A re-implementation along those lines would also need to lose the "external GitHub App checks like Cloudflare Pages get aggregated for free" benefit, since `workflow_run` only fires on Actions workflows.
+>
+> Alternatively, this could be re-implemented as an **external GitHub App** receiving `check_suite` webhooks directly (Cloudflare Worker / Probot / similar). Webhooks have no recursion guard. This trades the "no external infrastructure" goal for correctness.
+>
+> ### What was learned
+>
+> The mistake in the brainstorming phase was reading only the first half of the `check_suite` event description and reasoning from the trigger-count table without verifying the `or if the check suite's head SHA is associated with GitHub Actions` clause against an empirical test. A 30-minute dogfood PR before locking in the spec would have surfaced this. The post-mortem in Japanese is in [docs/lessons/2026-05-05-check-suite-recursion-finding.md](docs/lessons/2026-05-05-check-suite-recursion-finding.md).
+>
+> ### What remains useful here
+>
+> The implementation under `src/` is well-tested (49 unit tests, TDD-driven) and could be salvaged by anyone re-attempting this with `workflow_run`. Modules worth keeping: `conclusion.ts` (GitHub-standard verdict mapping), `filter.ts` (App + glob exclusions, with `path.matchesGlob` and `/`-flatten), `self-exclusion.ts` (own-run identification via `details_url` regex), `aggregator.ts` (normal vs rescue mode), `api.ts` (octokit wrapper with retries and pagination). The wiring in `index.ts` would need to be rewritten for the new event surface.
+>
+> ---
+>
+> The rest of this README is the original v1 documentation, kept as-is for reference. **Do not use this Action.** The `dist/index.js` is published but inert — no event ever invokes it.
+>
+> ---
 
 A GitHub Action that aggregates all check results on the same commit into a single commit status, triggered by `check_suite.completed`. Designed as a **multi-workflow successor to `re-actors/alls-green`** for monorepo + Renovate environments, replacing `upsidr/merge-gatekeeper`'s polling-based design that occupies a runner for the entire CI duration.
 
