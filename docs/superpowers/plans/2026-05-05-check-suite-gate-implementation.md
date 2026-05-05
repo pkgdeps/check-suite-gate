@@ -1618,16 +1618,16 @@ git commit -m "ci: add self-hosting integration test workflow"
 **Files:**
 - Create: `README.md`
 
-- [ ] **Step 1: README を作成**
+- [ ] **Step 1: Write README (English)**
 
 `README.md`:
 
 ````markdown
 # check-suite-gate
 
-GitHub Actions の `check_suite.completed` event を起点に、 同一 commit 上の全 check を集約して 1 つの commit status を書く merge gate。 `re-actors/alls-green` の **multi-workflow 版**として、 monorepo + Renovate 大量 PR 環境で `upsidr/merge-gatekeeper` の polling コストを払わずに集約 status を提供する。
+A GitHub Action that aggregates all check results on the same commit into a single commit status, triggered by `check_suite.completed`. Designed as a **multi-workflow successor to `re-actors/alls-green`** for monorepo + Renovate environments, replacing `upsidr/merge-gatekeeper`'s polling-based design that occupies a runner for the entire CI duration.
 
-## 利用方法
+## Usage
 
 ```yaml
 # .github/workflows/check-suite-gate.yaml
@@ -1658,24 +1658,38 @@ jobs:
           ignore-checks: 'optional-*,docs-only'
 ```
 
-ruleset 側で `check-suite-gate/all-passed` を required status check として登録する。
+Then register `check-suite-gate/all-passed` as a required status check in your ruleset / branch protection.
 
-## inputs
+## Inputs
 
 | name | required | default | description |
 |---|---|---|---|
-| `context` | no | `check-suite-gate/all-passed` | commit status の context 名 |
-| `ignore-apps` | no | (空) | カンマ区切り。 これらの App slug の check_run を集約から除外 |
-| `ignore-checks` | no | (空) | カンマ区切り。 glob (`*` / `?`) サポート |
-| `token` | no | `${{ github.token }}` | API token |
+| `context` | no | `check-suite-gate/all-passed` | Commit status context name |
+| `ignore-apps` | no | (empty) | Comma-separated GitHub App slugs whose check_runs are excluded |
+| `ignore-checks` | no | (empty) | Comma-separated check_run name patterns to exclude. Glob (`*` / `?`) supported |
+| `token` | no | `${{ github.token }}` | GitHub token used for API access |
 
-## 救出モード (stuck 解消)
+## Outputs
 
-集約 status が pending のまま固まったら、 PR の Checks UI で集約 status をクリック → gate workflow run page → **"Re-run all jobs"** を押す。 `run_attempt > 1` の救出モードで未完了 check_run は除外され、 残った check_run の conclusion で最終評価される。
+| name | description |
+|---|---|
+| `state` | `pending` / `success` / `failure` |
+| `total-checks` | Number of check_runs observed before filtering |
+| `evaluated-checks` | Number of check_runs after filters |
+| `completed-checks` | Number of completed check_runs after filters |
+| `mode` | `normal` or `rescue` |
 
-## 設計
+## Rescue Mode (Recovering from Stuck Status)
 
-詳細は `docs/superpowers/specs/2026-05-05-check-suite-gate-design.md` を参照。
+When the aggregated status is stuck on `pending` (e.g. a third-party GitHub App never reports back), click the aggregated status in the PR's Checks UI. This opens the gate workflow's run page where you can press **"Re-run all jobs"**. With `run_attempt > 1`, the action enters rescue mode: incomplete check_runs are excluded from aggregation, and the verdict is decided based on the remaining ones.
+
+## Design
+
+See `docs/superpowers/specs/2026-05-05-check-suite-gate-design.md` for the full design document.
+
+## License
+
+MIT
 ````
 
 - [ ] **Step 2: Commit**
