@@ -18,10 +18,14 @@ const review = (override: {
   user?: string
   state?: string
   submitted_at?: string
+  author_association?: string
 }): ReviewListItem => ({
   state: override.state ?? 'COMMENTED',
   submitted_at: override.submitted_at ?? '2026-01-01T00:00:00Z',
-  user: override.user !== undefined ? { login: override.user } : null
+  user: override.user !== undefined ? { login: override.user } : null,
+  // Default to MEMBER so most tests don't need to specify it; specific
+  // tests below override with CONTRIBUTOR/NONE to cover the auth path.
+  author_association: override.author_association ?? 'MEMBER'
 })
 
 describe('hasActiveApproval', () => {
@@ -30,7 +34,7 @@ describe('hasActiveApproval', () => {
     expect(await hasActiveApproval(octokit, 'o', 'r', 1)).toBe(false)
   })
 
-  it('returns true when at least one user has an APPROVED review', async () => {
+  it('returns true when at least one MEMBER has an APPROVED review', async () => {
     const octokit = buildOctokit([review({ user: 'alice', state: 'APPROVED' })])
     expect(await hasActiveApproval(octokit, 'o', 'r', 1)).toBe(true)
   })
@@ -63,6 +67,54 @@ describe('hasActiveApproval', () => {
     const octokit = buildOctokit([
       review({ user: 'alice', state: 'APPROVED' }),
       review({ user: 'bob', state: 'CHANGES_REQUESTED' })
+    ])
+    expect(await hasActiveApproval(octokit, 'o', 'r', 1)).toBe(true)
+  })
+
+  it('ignores Approves from drive-by reviewers (CONTRIBUTOR / NONE)', async () => {
+    // Anyone can submit a review on a public PR. Only OWNER / MEMBER /
+    // COLLABORATOR have merge weight; treat the rest as no-signal so a
+    // random user's "Approve" can't satisfy the gate.
+    const octokit = buildOctokit([
+      review({
+        user: 'eve',
+        state: 'APPROVED',
+        author_association: 'CONTRIBUTOR'
+      }),
+      review({
+        user: 'mallory',
+        state: 'APPROVED',
+        author_association: 'NONE'
+      })
+    ])
+    expect(await hasActiveApproval(octokit, 'o', 'r', 1)).toBe(false)
+  })
+
+  it('counts OWNER / COLLABORATOR / MEMBER approvals', async () => {
+    for (const association of ['OWNER', 'COLLABORATOR', 'MEMBER']) {
+      const octokit = buildOctokit([
+        review({
+          user: 'alice',
+          state: 'APPROVED',
+          author_association: association
+        })
+      ])
+      expect(await hasActiveApproval(octokit, 'o', 'r', 1)).toBe(true)
+    }
+  })
+
+  it('returns true when an authorized Approve coexists with a drive-by Approve', async () => {
+    const octokit = buildOctokit([
+      review({
+        user: 'eve',
+        state: 'APPROVED',
+        author_association: 'NONE'
+      }),
+      review({
+        user: 'alice',
+        state: 'APPROVED',
+        author_association: 'MEMBER'
+      })
     ])
     expect(await hasActiveApproval(octokit, 'o', 'r', 1)).toBe(true)
   })

@@ -24207,6 +24207,7 @@ var determineMode = (input) => {
 };
 
 // src/review-status.ts
+var AUTHORIZED_ASSOCIATIONS = /* @__PURE__ */ new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = {
   retries: 3,
   baseDelayMs: 500
@@ -24221,6 +24222,7 @@ var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = 
   const latestPerUser = /* @__PURE__ */ new Map();
   for (const r of reviews) {
     if (r.state === "COMMENTED") continue;
+    if (!AUTHORIZED_ASSOCIATIONS.has(r.author_association)) continue;
     const login = r.user?.login ?? "<unknown>";
     latestPerUser.set(login, r);
   }

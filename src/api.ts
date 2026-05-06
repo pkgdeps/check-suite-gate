@@ -79,6 +79,11 @@ export type ReviewListItem = {
   state: string
   submitted_at: string | null
   user: { login: string } | null
+  // GitHub's classification of the reviewer's relationship to the
+  // repository. Used to skip reviews from drive-by users (CONTRIBUTOR /
+  // NONE / FIRST_TIME_CONTRIBUTOR / MANNEQUIN) so a non-authorized
+  // Approve doesn't satisfy the merge-intent gate.
+  author_association: string
 }
 
 export type OctokitLike = {
