@@ -65,7 +65,10 @@ describe('writeCheckRun', () => {
       sha: 'abc',
       state: 'pending',
       name: 'automerge-gate/all-passed',
-      description: 'Click "Enable Auto Merge" on this PR to start the gate.',
+      output: {
+        title: 'Waiting for Enable auto-merge',
+        summary: 'Click Enable auto-merge.'
+      },
       details_url: 'https://example.com'
     })
 
@@ -86,8 +89,8 @@ describe('writeCheckRun', () => {
       conclusion: undefined,
       external_id: CHECK_RUN_EXTERNAL_ID,
       output: {
-        title: 'automerge-gate',
-        summary: 'Click "Enable Auto Merge" on this PR to start the gate.'
+        title: 'Waiting for Enable auto-merge',
+        summary: 'Click Enable auto-merge.'
       },
       details_url: 'https://example.com'
     })
@@ -101,17 +104,14 @@ describe('writeCheckRun', () => {
       sha: 'abc',
       state: 'success',
       name: 'automerge-gate/all-passed',
-      description: 'success: 5 checks evaluated'
+      output: { title: 'All checks passed', summary: 'All 5 checks passed.' }
     })
 
     expect(mocks.create).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'completed',
         conclusion: 'success',
-        output: {
-          title: 'automerge-gate',
-          summary: 'success: 5 checks evaluated'
-        }
+        output: { title: 'All checks passed', summary: 'All 5 checks passed.' }
       })
     )
   })
@@ -151,7 +151,7 @@ describe('writeCheckRun', () => {
       sha: 'abc',
       state: 'success',
       name: 'automerge-gate/all-passed',
-      description: 'done',
+      output: { title: 'All checks passed', summary: 'done' },
       details_url: 'https://example.com'
     })
 
@@ -162,7 +162,7 @@ describe('writeCheckRun', () => {
       check_run_id: 9999,
       status: 'completed',
       conclusion: 'success',
-      output: { title: 'automerge-gate', summary: 'done' },
+      output: { title: 'All checks passed', summary: 'done' },
       details_url: 'https://example.com'
     })
   })

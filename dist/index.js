@@ -24086,7 +24086,6 @@ var pollUntilComplete = async (fetchRuns, options) => {
 // src/check-run.ts
 var buildTargetUrl = (input) => `${input.serverUrl}/${input.repository}/actions/runs/${input.runId}/attempts/${input.runAttempt}`;
 var CHECK_RUN_EXTERNAL_ID = "automerge-gate";
-var TITLE = "automerge-gate";
 var stateToCheckRunFields = (state) => {
   if (state === "pending") return { status: "queued" };
   return { status: "completed", conclusion: state };
@@ -24095,9 +24094,8 @@ var writeCheckRun = async (octokit, input, retryOptions = {
   retries: 3,
   baseDelayMs: 500
 }) => {
-  const { owner, repo, sha, state, name, description, details_url } = input;
+  const { owner, repo, sha, state, name, output, details_url } = input;
   const { status, conclusion } = stateToCheckRunFields(state);
-  const output = description !== void 0 ? { title: TITLE, summary: description } : void 0;
   const list = await withRetry(
     () => octokit.rest.checks.listForRef({
       owner,
@@ -24143,7 +24141,29 @@ var writeCheckRun = async (octokit, input, retryOptions = {
 };
 
 // src/index.ts
-var PENDING_DESCRIPTION = 'Click "Enable Auto Merge" on this PR to start the gate.';
+var buildPendingOutput = () => ({
+  title: "Waiting for Enable auto-merge",
+  summary: [
+    "This required check is waiting for the maintainer to click **Enable auto-merge** on this PR.",
+    "",
+    "Once enabled, the gate polls every other check on the PR and turns green or red based on the aggregated result. The maintainer doesn't need to wait \u2014 auto-merge will trigger as soon as the gate turns green."
+  ].join("\n")
+});
+var buildPollingOutput = (state, stats) => {
+  const title = state === "success" ? "All checks passed" : "At least one check failed";
+  const headline = state === "success" ? `All ${stats.evaluated} evaluated checks passed.` : `${stats.evaluated} evaluated checks include at least one failure.`;
+  const summary2 = [
+    headline,
+    "",
+    "| Field | Value |",
+    "|---|---|",
+    `| Total (pre-filter) | ${stats.total} |`,
+    `| Evaluated (post-filter) | ${stats.evaluated} |`,
+    `| Completed | ${stats.completed} |`,
+    `| Polling iterations | ${stats.iterations} |`
+  ].join("\n");
+  return { title, summary: summary2 };
+};
 var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
 var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
 var determineMode = (input) => {
@@ -24233,7 +24253,7 @@ var run = async () => {
         sha,
         state: "pending",
         name: inputs.context,
-        description: PENDING_DESCRIPTION,
+        output: buildPendingOutput(),
         details_url: targetUrl
       });
     }
@@ -24309,15 +24329,20 @@ var run = async () => {
     `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
   );
   core.endGroup();
-  const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`;
   if (inputs.mode === "main-gate") {
+    const pollingOutput = pollResult.state === "pending" ? buildPendingOutput() : buildPollingOutput(pollResult.state, {
+      total: lastTotal,
+      evaluated: lastEvaluated,
+      completed: lastCompleted,
+      iterations: pollResult.iterations
+    });
     await writeCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
       sha,
       state: pollResult.state,
       name: inputs.context,
-      description: description.slice(0, 140),
+      output: pollingOutput,
       details_url: targetUrl
     });
   }

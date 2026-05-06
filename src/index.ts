@@ -12,10 +12,54 @@ import {
   parseCurrentWorkflowPath
 } from './self-exclusion.js'
 import { pollUntilComplete } from './polling.js'
-import { buildTargetUrl, writeCheckRun } from './check-run.js'
+import {
+  buildTargetUrl,
+  writeCheckRun,
+  type CheckRunOutput
+} from './check-run.js'
 
-const PENDING_DESCRIPTION =
-  'Click "Enable Auto Merge" on this PR to start the gate.'
+// Output shown when the gate is waiting for the maintainer to click
+// "Enable auto-merge". The title is what GitHub renders inline in the PR
+// merge box (e.g. "Queued — Waiting for Enable auto-merge"), so it must
+// be self-explanatory at a glance.
+const buildPendingOutput = (): CheckRunOutput => ({
+  title: 'Waiting for Enable auto-merge',
+  summary: [
+    'This required check is waiting for the maintainer to click **Enable auto-merge** on this PR.',
+    '',
+    "Once enabled, the gate polls every other check on the PR and turns green or red based on the aggregated result. The maintainer doesn't need to wait — auto-merge will trigger as soon as the gate turns green."
+  ].join('\n')
+})
+
+type PollingStats = {
+  total: number
+  evaluated: number
+  completed: number
+  iterations: number
+}
+
+const buildPollingOutput = (
+  state: 'success' | 'failure',
+  stats: PollingStats
+): CheckRunOutput => {
+  const title =
+    state === 'success' ? 'All checks passed' : 'At least one check failed'
+  const headline =
+    state === 'success'
+      ? `All ${stats.evaluated} evaluated checks passed.`
+      : `${stats.evaluated} evaluated checks include at least one failure.`
+  const summary = [
+    headline,
+    '',
+    '| Field | Value |',
+    '|---|---|',
+    `| Total (pre-filter) | ${stats.total} |`,
+    `| Evaluated (post-filter) | ${stats.evaluated} |`,
+    `| Completed | ${stats.completed} |`,
+    `| Polling iterations | ${stats.iterations} |`
+  ].join('\n')
+  return { title, summary }
+}
 
 // pull_request activity types that may bring a new HEAD SHA to the PR.
 // The gate re-evaluates the SHA on these. Triggers pending mode by default,
@@ -161,7 +205,7 @@ const run = async (): Promise<void> => {
         sha,
         state: 'pending',
         name: inputs.context,
-        description: PENDING_DESCRIPTION,
+        output: buildPendingOutput(),
         details_url: targetUrl
       })
     }
@@ -248,16 +292,23 @@ const run = async (): Promise<void> => {
   )
   core.endGroup()
 
-  const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`
-
   if (inputs.mode === 'main-gate') {
+    const pollingOutput =
+      pollResult.state === 'pending'
+        ? buildPendingOutput()
+        : buildPollingOutput(pollResult.state, {
+            total: lastTotal,
+            evaluated: lastEvaluated,
+            completed: lastCompleted,
+            iterations: pollResult.iterations
+          })
     await writeCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
       sha,
       state: pollResult.state,
       name: inputs.context,
-      description: description.slice(0, 140),
+      output: pollingOutput,
       details_url: targetUrl
     })
   }

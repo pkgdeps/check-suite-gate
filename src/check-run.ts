@@ -21,7 +21,10 @@ export const buildTargetUrl = (input: TargetUrlInput): string =>
 // that happens to share the configured name.
 export const CHECK_RUN_EXTERNAL_ID = 'automerge-gate'
 
-const TITLE = 'automerge-gate'
+export type CheckRunOutput = {
+  title: string
+  summary: string
+}
 
 export type WriteCheckRunInput = {
   owner: string
@@ -29,7 +32,7 @@ export type WriteCheckRunInput = {
   sha: string
   state: State
   name: string
-  description?: string
+  output?: CheckRunOutput
   details_url?: string
 }
 
@@ -71,12 +74,8 @@ export const writeCheckRun = async (
     baseDelayMs: 500
   }
 ): Promise<void> => {
-  const { owner, repo, sha, state, name, description, details_url } = input
+  const { owner, repo, sha, state, name, output, details_url } = input
   const { status, conclusion } = stateToCheckRunFields(state)
-  const output: { title: string; summary: string } | undefined =
-    description !== undefined
-      ? { title: TITLE, summary: description }
-      : undefined
 
   const list = await withRetry(
     () =>
