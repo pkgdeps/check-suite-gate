@@ -20,7 +20,7 @@ sequenceDiagram
     participant PR as Pull Request
 
     U->>PR: open / push
-    Note over PR: required check pending → merge blocked
+    Note over PR: required check at "Expected — Waiting for status to be reported" → merge blocked
 
     U->>PR: click "Enable Auto Merge"
     Note over PR: gate workflow polls every check on the PR
@@ -33,24 +33,31 @@ sequenceDiagram
     end
 ```
 
-1. A PR is merge-blocked from the moment it's opened. The gate writes a check_run with `status: queued` and a "Click Enable Auto Merge to start the gate." summary.
-2. When merge intent is signalled — the maintainer clicks **Enable Auto Merge**, *or* a reviewer submits an **Approve** review — the gate workflow polls every check on the PR.
-3. It writes a fresh check_run with the verdict (`conclusion: success` or `failure`).
+1. A PR is merge-blocked from the moment it's opened. The action does not write a check_run yet, so the required check sits at GitHub's default `Expected — Waiting for status to be reported`, which keeps the PR blocked.
+2. When merge intent is signalled — the maintainer clicks **Enable Auto Merge**, *or* a reviewer with write access submits an **Approve** review — the gate job polls every check on the PR.
+3. The verdict reaches the required check via one of two paths, depending on configuration:
+   - **private** (cost-optimized): the action writes the aggregated check_run with `conclusion: success` / `failure`.
+   - **public** (fork-aware): the gate job's own check_run conclusion (the job is named after the required check) is the signal.
 4. GitHub's native auto-merge merges the PR as soon as the required check turns green.
 
 If Auto Merge is already enabled when you push a new commit, the gate re-evaluates the new SHA automatically — no need to disable→enable.
 
 Teams whose Approve culture is "LGTM, but not necessarily merge now" can drop `pull_request_review` from the workflow's `on:` to disable the Approve trigger; the workflow YAML is the toggle.
 
-Same-repo and fork PRs are both handled by the same workflow via a 2-job `if:` mutex; see [Usage](#usage).
-
 Note: GitHub rulesets only support AND across required checks (no OR / conditional logic), so this action is the place where "all of these checks across workflows must pass" is expressed as a single check.
 
 ## Usage
 
-### 1. Add the workflow
+automerge-gate ships two workflow configurations. Pick one based on whether your repository accepts external fork PRs:
 
-Create `.github/workflows/automerge-gate.yaml` in your repository. The workflow uses a 2-job pattern with an `if:` mutex so exactly one of `main-gate` / `fork-gate` runs per PR:
+- **Configuration A: private (cost-optimized)** — internal-only repos that do not receive external fork PRs. The action writes the aggregated check_run via the Checks API. PRs without merge intent skip polling entirely so runner minutes are saved.
+- **Configuration B: public (fork-aware)** — repos that accept fork PRs. `GITHUB_TOKEN` is read-only on fork PRs, so the gate signal is the gate job's own check_run conclusion. The job runs on every triggering event and always polls.
+
+Coming from v2? See [docs/MIGRATION.md](docs/MIGRATION.md).
+
+### Configuration A: private (cost-optimized)
+
+Create `.github/workflows/automerge-gate.yaml`:
 
 ```yaml
 name: automerge-gate
@@ -66,30 +73,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Same-repo PR. Token has checks:write, so the action writes the aggregated check_run directly.
-  main-gate:
+  gate:
     if: >-
-      github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
-      && (github.event_name != 'pull_request_review' || github.event.review.state == 'approved')
+      github.event_name != 'pull_request_review'
+      || github.event.review.state == 'approved'
     runs-on: ubuntu-latest
-    # timeout-minutes is the action's only timeout. Bound it to your CI's worst case.
     timeout-minutes: 10
     permissions:
       checks: write
       pull-requests: read
       actions: read
     steps:
-      - uses: pkgdeps/automerge-gate@v2.0.0
+      - uses: pkgdeps/automerge-gate@v3.0.0
         with:
-          gate: main
+          gate-mode: 'private'
           context: 'automerge-gate/all-passed'
+```
 
-  # Fork PR. Token is read-only, so the gate is the job's own check_run conclusion (named after the job).
-  fork-gate:
-    if: >-
-      github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
-      && (github.event_name != 'pull_request_review' || github.event.review.state == 'approved')
-    name: automerge-gate/all-passed
+The `pull_request_review.state == 'approved'` clause filters out non-Approve review submissions (`commented`, `changes_requested`) at the job level, so the runner doesn't even spin up for those. GitHub's `on:` block can filter activity types but not review state, so the filter has to live in the job's `if:`.
+
+When a `synchronize`, `opened`, or `reopened` event fires without an active merge intent (no Auto Merge enabled, no sticky write-permission Approve), the action exits cleanly without writing a check_run. The required check stays at GitHub's `Expected` state and merge stays blocked, but no polling burns runner minutes.
+
+### Configuration B: public (fork-aware)
+
+Create `.github/workflows/automerge-gate.yaml`:
+
+```yaml
+name: automerge-gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, auto_merge_enabled]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: automerge-gate/all-passed   # must match the required check in your ruleset
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -97,25 +119,24 @@ jobs:
       pull-requests: read
       actions: read
     steps:
-      - uses: pkgdeps/automerge-gate@v2.0.0
+      - uses: pkgdeps/automerge-gate@v3.0.0
         with:
-          gate: fork
+          gate-mode: 'public'
 ```
 
-The `pull_request_review.state == 'approved'` clause filters out non-Approve review submissions (`commented`, `changes_requested`) at the job level, so the runner doesn't even spin up for those. GitHub's `on:` block can filter activity types but not review state, so the filter has to live in the job's `if:`.
+In public mode, the job's `name:` *is* the required-check context — GitHub Actions creates a check_run with that name when the job starts, and its conclusion is what the required check evaluates. The action polls every triggering event (no skip path) because read-only token can't write a "waiting" signal anyway, and a skipped job would let an unfinished PR slip through merge.
 
-Why two jobs:
+### Configuration differences
 
-**Both jobs do the same polling**: each one waits for every other check on the PR to finish, then decides success or failure. They only differ in *how* they report the verdict to GitHub's required check:
+| | private | public |
+|---|---|---|
+| `pull_request_review` trigger | yes | no |
+| Job `name:` | (default) | matches required check |
+| Permissions | `checks: write` | `checks: read` |
+| API write of aggregate | yes | no |
+| Skip on no merge intent | yes (saves runner minutes) | no (always polls) |
 
-- **`main-gate`** (same-repo PR): the token has `checks: write`, so the action writes the aggregated verdict as a check_run named `automerge-gate/all-passed`. While Auto Merge has not been enabled yet, the action writes that check_run with `status: queued` (a non-terminal yellow-dot state) so merge stays blocked; once polling runs, the same check_run is patched to `status: completed` with `conclusion: success` or `failure`.
-- **`fork-gate`** (fork PR): the token is read-only — a check_run write would 403. The job's `name:` is set to `automerge-gate/all-passed`, so GitHub names *the job's own check_run* after it. After polling, the action exits with success or failure, and that exit code becomes the check_run conclusion — which is what the required check evaluates.
-
-The `if:` condition `head.repo.id == base.repo.id` is a mutex: exactly one of the two runs per PR; the other is `skipped`, and skipped jobs don't block required checks. Splitting them keeps each PR with exactly one signal of the right kind — combining them into a single job whose name matches the aggregate would produce two `automerge-gate/all-passed` check_runs in the PR UI (one written by the action, one created by GitHub Actions for the job) and make the required-check evaluation ambiguous.
-
-See [Inputs](#inputs) for optional inputs like `ignore-apps` / `ignore-checks`.
-
-### 2. Register the required check + allow auto-merge
+### Register the required check + allow auto-merge
 
 In repository **Settings**:
 
@@ -124,7 +145,7 @@ In repository **Settings**:
 
 This single required check is now the only thing standing between a PR and merge. Any check that lands on the PR — Renovate, Codecov, your own workflows — gets aggregated into it.
 
-### 3. Press Enable Auto Merge
+### Press Enable Auto Merge
 
 On any PR you want to ship:
 
@@ -140,11 +161,11 @@ On any PR you want to ship:
 
 | name | required | default | description |
 |---|---|---|---|
-| `context` | no | `automerge-gate/all-passed` | Aggregated check_run name. Must match the required check in your ruleset. |
+| `gate-mode` | **yes** | (none) | `private` / `public`. `private` = action writes the aggregated check_run via the Checks API (token needs `checks: write`). `public` = gate signal is the JOB's own check_run conclusion; the job's `name:` must match the required-check context (token can be `checks: read`). |
+| `context` | no | `automerge-gate/all-passed` | Aggregated check_run name. **`gate-mode: private` only** — must match the required check in your ruleset. Ignored when `gate-mode: public` (the job name is the signal). |
 | `poll-interval-seconds` | no | `30` | How often to re-fetch check status |
 | `ignore-apps` | no | (empty) | GitHub App slugs to exclude. Comma-separated **or newline-separated** |
 | `ignore-checks` | no | (empty) | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated** |
-| `gate` | **yes** | (none) | `main` / `fork`. `main` writes the aggregated check_run (used by the `main-gate` job for same-repo PRs). `fork` skips the check_run write entirely so the gate is the job's own check_run conclusion (used by the `fork-gate` job whose `name:` matches the required check, for fork PRs with read-only token). |
 | `token` | no | `${{ github.token }}` | GitHub token used to read checks and (when permitted) write the aggregated check_run |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
@@ -161,9 +182,9 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 **Exclude specific GitHub Apps from aggregation:**
 
 ```yaml
-      - uses: pkgdeps/automerge-gate@v2.0.0
+      - uses: pkgdeps/automerge-gate@v3.0.0
         with:
-          gate: main
+          gate-mode: 'private'
           ignore-apps: |
             dependabot
             renovate
@@ -172,9 +193,9 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 **Exclude check_runs by glob:**
 
 ```yaml
-      - uses: pkgdeps/automerge-gate@v2.0.0
+      - uses: pkgdeps/automerge-gate@v3.0.0
         with:
-          gate: main
+          gate-mode: 'private'
           ignore-checks: |
             optional-*
             docs-only
@@ -185,9 +206,9 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 **Tune polling interval for fast CI:**
 
 ```yaml
-      - uses: pkgdeps/automerge-gate@v2.0.0
+      - uses: pkgdeps/automerge-gate@v3.0.0
         with:
-          gate: main
+          gate-mode: 'private'
           poll-interval-seconds: '10'
 ```
 
@@ -195,7 +216,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 
 | name | description |
 |---|---|
-| `state` | `pending` / `success` / `failure` |
+| `state` | `success` / `failure` / `skipped` |
 | `total-checks` | Number of check_runs observed before filtering |
 | `evaluated-checks` | Number of check_runs after filters |
 | `completed-checks` | Number of completed check_runs after filters |
@@ -204,9 +225,9 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 ## Why this design
 
 - **`pull_request.auto_merge_enabled` has no recursion guard** unlike `check_suite.completed`, so the gate reliably fires on GitHub-Actions-only repos.
-- **Polling is gated by an explicit signal** (Enable Auto Merge), so PRs the maintainer hasn't yet decided to merge don't burn runner minutes. Compared with merge-gatekeeper, which polls on every PR push, the resource cost scales with merge intent rather than with PR throughput.
-- **Gating is the gate job's check_run conclusion.** GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a write-based gate can't run there at all. By gating on the job's exit code (the check_run conclusion named `automerge-gate/all-passed` to match the required check), the action works uniformly for same-repo and fork PRs. The aggregated check_run is still written as a courtesy in `main-gate` mode when the token has `checks: write` — same name as the required check, with `status: queued` while waiting for Enable Auto Merge and `conclusion: success` / `failure` after polling. There's no self-referencing loop because the action filters out check_runs from its own workflow.
-- **Check_run instead of commit status.** Commit statuses are append-only per SHA, so the same SHA's pending → success/failure transition stacks two entries; the Checks API lets the gate PATCH a single check_run by id, keeping the PR UI to one row per SHA. It also unlocks `conclusion: stale` for future cleanup of old SHAs.
+- **Polling is gated by an explicit signal** in private mode (Enable Auto Merge or a write-permission Approve), so PRs the maintainer hasn't yet decided to merge don't burn runner minutes. Compared with merge-gatekeeper, which polls on every PR push, the resource cost scales with merge intent rather than with PR throughput. In public mode, the read-only token forces the simpler "always poll" model — there's no way to write a "waiting" signal back to the required check.
+- **Single-job pattern.** The verdict reaches the required check through exactly one path per configuration: in private mode the action writes a check_run named to match the required check; in public mode the job's `name:` is the required-check context and its exit code is the conclusion. There's no self-referencing loop because the action filters out check_runs from its own workflow.
+- **Check_run instead of commit status.** Commit statuses are append-only per SHA, so the same SHA's pending → success/failure transition stacks two entries; the Checks API lets the gate PATCH a single check_run by id, keeping the PR UI to one row per SHA.
 - **GitHub native auto-merge handles the merge itself** once the required check turns green. This Action does not call `pulls.merge`.
 - **No internal timeout input** — timeout is managed by the job's `timeout-minutes`. Having two timeouts to keep in sync (action input vs job-level) is a footgun, so the action delegates fully. There's exactly one knob, and it's a standard GitHub Actions feature.
 
@@ -215,11 +236,11 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 - **Merge queue (`merge_group`)** is not supported.
 - **Dead runner / job timeout**: if the runner is killed mid-polling (job hits `timeout-minutes`, dies physically, etc.), the gate job's check_run becomes `failure` (or `cancelled`), so the required check stays red and merge stays blocked. The maintainer can disable then re-enable Auto Merge to re-trigger.
 - **CIs that only write legacy commit statuses**: GitHub has two ways for CIs to report results — the modern check_run / check_suite API (used by GitHub Actions, Cloudflare Pages, Codecov, etc.) and the legacy commit-status API (used by some older or self-hosted CIs like Atlantis or some Jenkins setups). The action polls the check_run / check_suite side, so a CI that only writes legacy commit statuses isn't aggregated. If you depend on such a CI, register it as a separate required check in your ruleset alongside `automerge-gate/all-passed`.
-- **Force-push edge case (`main-gate` only)**: every push to a PR creates an aggregated check_run on the new HEAD SHA, and `pull_request.synchronize` events also mark the previous SHA's check_run with `conclusion: cancelled` (using the payload's `before` SHA — `conclusion: stale` is the semantically perfect fit but is restricted to GitHub's internal Actions service). For ordinary pushes this leaves at most one non-cancelled aggregated check_run per PR. A force-push that rewrites history beyond `before` can leave older SHAs (the ones the rewrite replaced) still showing their original `queued` aggregate; this has no effect on PR-level evaluation or auto-merge.
+- **Force-push edge case (private mode only)**: every push to a PR creates a fresh aggregated check_run on the new HEAD SHA, and `pull_request.synchronize` events also mark the previous SHA's check_run with `conclusion: cancelled` (using the payload's `before` SHA — `conclusion: stale` is the semantically perfect fit but is restricted to GitHub's internal Actions service). For ordinary pushes this leaves at most one non-cancelled aggregated check_run per PR. A force-push that rewrites history beyond `before` can leave older SHAs (the ones the rewrite replaced) still showing their original aggregate; this has no effect on PR-level evaluation or auto-merge.
 
 ## Versioning
 
-Releases are published as **immutable semver tags** (`v2.0.0`, `v2.1.0`, ...). There is intentionally no moving major tag (`v2`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
+Releases are published as **immutable semver tags** (`v3.0.0`, `v3.1.0`, ...). There is intentionally no moving major tag (`v3`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
 
 ## Releasing (maintainers)
 
@@ -237,18 +258,18 @@ All releases are cut from the GitHub web UI. There is no release script and no `
 ### Cutting a release
 
 1. Go to **Releases → Draft a new release**.
-2. **Choose a tag**: type the new version (e.g. `v2.0.0`) and select *Create new tag on publish*.
+2. **Choose a tag**: type the new version (e.g. `v3.0.0`) and select *Create new tag on publish*.
 3. **Target**: `main`.
-4. **Release title**: same as the tag (e.g. `v2.0.0`).
+4. **Release title**: same as the tag (e.g. `v3.0.0`).
 5. Click **Generate release notes** to autopopulate from PRs / commits since the last tag.
-6. **Set as the latest release**: ✅
-7. **Mark as an immutable release** (Public Preview): ✅ if the option is shown — locks the tag and asset checksums so they cannot be silently rewritten later.
-8. **Publish to GitHub Marketplace**: ✅ on the **first** release only. Subsequent releases auto-update the existing Marketplace listing.
+6. **Set as the latest release**: tick the box.
+7. **Mark as an immutable release** (Public Preview): tick if the option is shown — locks the tag and asset checksums so they cannot be silently rewritten later.
+8. **Publish to GitHub Marketplace**: tick on the **first** release only. Subsequent releases auto-update the existing Marketplace listing.
 9. Click **Publish release**.
 
 ### After publishing
 
-Users pin a fixed version: `uses: pkgdeps/automerge-gate@v2.0.0`. Renovate / Dependabot will open update PRs as new versions ship.
+Users pin a fixed version: `uses: pkgdeps/automerge-gate@v3.0.0`. Renovate / Dependabot will open update PRs as new versions ship.
 
 ## License
 

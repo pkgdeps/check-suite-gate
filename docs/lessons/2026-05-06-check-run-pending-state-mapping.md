@@ -184,8 +184,24 @@ polling中は latest = main-gate queued (非terminal = blocked)。 polling後は
 
 fork-gate の場合、 JOB自身が gate (= JOB起動時に check_run が in_progress として作られ、 終了時に conclusion 確定)。 同じ suite 内に同名の他 check_run が無いので race の窓がない。 fix は `inputs.gate === 'main'` 限定なので fork-gate には影響しない。
 
+## 5. v3 単一 job pattern で §4 hotfix が不要になる
+
+§4 の queued pre-write hotfix (v2.1.0) は **v2 の 2-job mutex pattern (`main-gate` / `fork-gate`)** が race の構造的原因だったため必要になった対症療法だった。 v3 では構成自体を 1 job に整理し直したので、 race の窓そのものが消え、 hotfix は不要になる。
+
+詳細仕様は [docs/superpowers/specs/2026-05-06-v3-single-job-design.md](../superpowers/specs/2026-05-06-v3-single-job-design.md) を参照。
+
+### 変わった点
+
+- **構成を 2 example に分離**: private (cost-optimized) / public (fork-aware)。 同名 check_run を複数 job が触りに行く構造を排除。 race の構造的撤廃。
+- **pending check_run write を廃止**: merge意図がない event (`synchronize` 等) では何も write せず、 GitHub default の `Expected — Waiting for status to be reported` に任せる。 §1 で採用した `status: queued` の write も merge意図あり時のみ。 user 視点の merge block 挙動は変わらず、 API write が 1 回減る。
+- **input rename を hard break で実施**: `gate: main | fork` → `gate-mode: 'private' | 'public'`。 alias は提供せず、 v2 の値が来たら startup で error。 v2 の race を抱えた構成に逆戻りする path を完全に閉じる。
+
+§4 の hotfix logic (`mode === 'polling'` で polling 前に pending writeCheckRun) は v3 では存在意義がない。 single job では「他 job が先に landing する」 という前提自体が成立しないため、 polling 前の pre-write で「 latest を確保する」 という対策が無意味になる。 src/gate-private.ts はこの pre-write を持たない。
+
 ## 関連
 
 - [docs/lessons/2026-05-05-check-suite-recursion-finding.md](./2026-05-05-check-suite-recursion-finding.md) — v1 設計の前提崩れ
+- [docs/superpowers/specs/2026-05-06-v3-single-job-design.md](../superpowers/specs/2026-05-06-v3-single-job-design.md) — v3 設計仕様 (race の構造的撤廃)
+- [docs/MIGRATION.md](../MIGRATION.md) — v2 → v3 移行ガイド
 - PR [#15](https://github.com/pkgdeps/automerge-gate/pull/15) — v2 移行 (commit status → check_run)
 - [src/check-run.ts](../../src/check-run.ts) — `stateToCheckRunFields` 実装
