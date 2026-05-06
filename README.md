@@ -68,7 +68,9 @@ concurrency:
 jobs:
   # Same-repo PR. Token has checks:write, so the action writes the aggregated check_run directly.
   main-gate:
-    if: github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+    if: >-
+      github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+      && (github.event_name != 'pull_request_review' || github.event.review.state == 'approved')
     runs-on: ubuntu-latest
     # timeout-minutes is the action's only timeout. Bound it to your CI's worst case.
     timeout-minutes: 10
@@ -84,7 +86,9 @@ jobs:
 
   # Fork PR. Token is read-only, so the gate is the job's own check_run conclusion (named after the job).
   fork-gate:
-    if: github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
+    if: >-
+      github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
+      && (github.event_name != 'pull_request_review' || github.event.review.state == 'approved')
     name: automerge-gate/all-passed
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -97,6 +101,8 @@ jobs:
         with:
           gate: fork
 ```
+
+The `pull_request_review.state == 'approved'` clause filters out non-Approve review submissions (`commented`, `changes_requested`) at the job level, so the runner doesn't even spin up for those. GitHub's `on:` block can filter activity types but not review state, so the filter has to live in the job's `if:`.
 
 Why two jobs:
 
