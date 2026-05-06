@@ -19747,22 +19747,22 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       process.stdout.write(message + os.EOL);
     }
     exports2.info = info2;
-    function startGroup(name) {
+    function startGroup2(name) {
       (0, command_1.issue)("group", name);
     }
-    exports2.startGroup = startGroup;
-    function endGroup() {
+    exports2.startGroup = startGroup2;
+    function endGroup2() {
       (0, command_1.issue)("endgroup");
     }
-    exports2.endGroup = endGroup;
+    exports2.endGroup = endGroup2;
     function group(name, fn) {
       return __awaiter(this, void 0, void 0, function* () {
-        startGroup(name);
+        startGroup2(name);
         let result;
         try {
           result = yield fn();
         } finally {
-          endGroup();
+          endGroup2();
         }
         return result;
       });
@@ -24068,6 +24068,12 @@ var pollUntilComplete = async (fetchRuns, options) => {
     try {
       const runs = await fetchRuns();
       const result = aggregate(runs);
+      options.onIteration?.({
+        iteration: iterations,
+        state: result.state,
+        total: result.total,
+        completed: result.completed
+      });
       if (result.state !== "pending") {
         return { state: result.state, iterations };
       }
@@ -24101,6 +24107,21 @@ var determineMode = (input) => {
   }
   return "skip";
 };
+var writeSummary = async (input) => {
+  const stateEmoji = input.state === "success" ? "\u2705" : input.state === "failure" ? "\u274C" : "\u{1F7E1}";
+  await core.summary.addHeading(`${stateEmoji} automerge-gate: ${input.state}`).addTable([
+    [
+      { data: "Field", header: true },
+      { data: "Value", header: true }
+    ],
+    ["mode", input.mode],
+    ["state", input.state],
+    ["total checks (pre-filter)", String(input.total)],
+    ["evaluated checks (post-filter)", String(input.evaluated)],
+    ["completed checks", String(input.completed)],
+    ["polling iterations", String(input.iterations)]
+  ]).write();
+};
 var run = async () => {
   const inputs = parseInputs({
     context: core.getInput("context"),
@@ -24123,6 +24144,9 @@ var run = async () => {
     core.setFailed("pull_request payload is missing");
     return;
   }
+  core.startGroup("Setup");
+  core.info(`Event: ${ctx.eventName} (action=${action})`);
+  core.info(`PR #${pr.number}, head SHA ${pr.head.sha}`);
   const sha = pr.head.sha;
   const runId = Number.parseInt(process.env.GITHUB_RUN_ID ?? "0", 10);
   const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10);
@@ -24139,6 +24163,10 @@ var run = async () => {
   const headRepo = pr.head.repo;
   const isFork = headRepo == null || headRepo.id !== baseRepoId;
   if (isFork) {
+    core.info(
+      `Fork PR detected (head_repo.id=${headRepo?.id ?? "null"} \u2260 base_repo.id=${baseRepoId}); fork-policy=${inputs.forkPolicy}`
+    );
+    core.endGroup();
     if (inputs.forkPolicy === "skip") {
       core.info(
         "Fork PR detected; skipping (no status written) per fork-policy=skip."
@@ -24148,6 +24176,14 @@ var run = async () => {
       core.setOutput("evaluated-checks", "0");
       core.setOutput("completed-checks", "0");
       core.setOutput("polled-iterations", "0");
+      await writeSummary({
+        state: "skipped",
+        mode: "fork-skip",
+        total: 0,
+        evaluated: 0,
+        completed: 0,
+        iterations: 0
+      });
       return;
     }
     core.info(
@@ -24167,6 +24203,14 @@ var run = async () => {
     core.setOutput("evaluated-checks", "0");
     core.setOutput("completed-checks", "0");
     core.setOutput("polled-iterations", "0");
+    await writeSummary({
+      state: "success",
+      mode: "fork-success",
+      total: 0,
+      evaluated: 0,
+      completed: 0,
+      iterations: 0
+    });
     return;
   }
   const mode = determineMode({
@@ -24174,8 +24218,18 @@ var run = async () => {
     isHeadShaEvent: isHeadShaAction(action),
     isAutoMergeAlreadyEnabled: pr.auto_merge !== null
   });
+  core.info(`Mode: ${mode}`);
+  core.endGroup();
   if (mode === "skip") {
     core.warning(`Skipping unsupported pull_request action: "${action}"`);
+    await writeSummary({
+      state: "skipped",
+      mode: "skip",
+      total: 0,
+      evaluated: 0,
+      completed: 0,
+      iterations: 0
+    });
     return;
   }
   if (mode === "pending") {
@@ -24193,6 +24247,14 @@ var run = async () => {
     core.setOutput("evaluated-checks", "0");
     core.setOutput("completed-checks", "0");
     core.setOutput("polled-iterations", "0");
+    await writeSummary({
+      state: "pending",
+      mode: "pending",
+      total: 0,
+      evaluated: 0,
+      completed: 0,
+      iterations: 0
+    });
     return;
   }
   let lastTotal = 0;
@@ -24234,9 +24296,24 @@ var run = async () => {
       throw err;
     }
   };
+  core.startGroup("Polling");
   const pollResult = await pollUntilComplete(fetchRuns, {
-    intervalSeconds: inputs.pollIntervalSeconds
+    intervalSeconds: inputs.pollIntervalSeconds,
+    onIteration: (s) => {
+      core.info(
+        `Poll #${s.iteration}: state=${s.state}, ${s.completed}/${s.total} completed`
+      );
+    }
   });
+  core.endGroup();
+  core.startGroup("Result");
+  core.info(
+    `Polling finished: state=${pollResult.state}, iterations=${pollResult.iterations}`
+  );
+  core.info(
+    `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
+  );
+  core.endGroup();
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`;
   await writeCommitStatus(octokit, {
     owner: ctx.repo.owner,
@@ -24252,6 +24329,14 @@ var run = async () => {
   core.setOutput("evaluated-checks", String(lastEvaluated));
   core.setOutput("completed-checks", String(lastCompleted));
   core.setOutput("polled-iterations", String(pollResult.iterations));
+  await writeSummary({
+    state: pollResult.state,
+    mode: "polling",
+    total: lastTotal,
+    evaluated: lastEvaluated,
+    completed: lastCompleted,
+    iterations: pollResult.iterations
+  });
 };
 run().catch((err) => {
   if (err instanceof Error) {

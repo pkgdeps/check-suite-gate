@@ -45,6 +45,35 @@ const determineMode = (input: DetermineModeInput): ActionMode => {
   return 'skip'
 }
 
+type SummaryInput = {
+  state: string
+  mode: string
+  total: number
+  evaluated: number
+  completed: number
+  iterations: number
+}
+
+const writeSummary = async (input: SummaryInput): Promise<void> => {
+  const stateEmoji =
+    input.state === 'success' ? '✅' : input.state === 'failure' ? '❌' : '🟡'
+  await core.summary
+    .addHeading(`${stateEmoji} automerge-gate: ${input.state}`)
+    .addTable([
+      [
+        { data: 'Field', header: true },
+        { data: 'Value', header: true }
+      ],
+      ['mode', input.mode],
+      ['state', input.state],
+      ['total checks (pre-filter)', String(input.total)],
+      ['evaluated checks (post-filter)', String(input.evaluated)],
+      ['completed checks', String(input.completed)],
+      ['polling iterations', String(input.iterations)]
+    ])
+    .write()
+}
+
 const run = async (): Promise<void> => {
   const inputs = parseInputs({
     context: core.getInput('context'),
@@ -76,6 +105,10 @@ const run = async (): Promise<void> => {
     return
   }
 
+  core.startGroup('Setup')
+  core.info(`Event: ${ctx.eventName} (action=${action})`)
+  core.info(`PR #${pr.number}, head SHA ${pr.head.sha}`)
+
   const sha = pr.head.sha
   const runId = Number.parseInt(process.env.GITHUB_RUN_ID ?? '0', 10)
   const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? '1', 10)
@@ -101,6 +134,10 @@ const run = async (): Promise<void> => {
   const isFork = headRepo == null || headRepo.id !== baseRepoId
 
   if (isFork) {
+    core.info(
+      `Fork PR detected (head_repo.id=${headRepo?.id ?? 'null'} ≠ base_repo.id=${baseRepoId}); fork-policy=${inputs.forkPolicy}`
+    )
+    core.endGroup()
     if (inputs.forkPolicy === 'skip') {
       core.info(
         'Fork PR detected; skipping (no status written) per fork-policy=skip.'
@@ -110,6 +147,14 @@ const run = async (): Promise<void> => {
       core.setOutput('evaluated-checks', '0')
       core.setOutput('completed-checks', '0')
       core.setOutput('polled-iterations', '0')
+      await writeSummary({
+        state: 'skipped',
+        mode: 'fork-skip',
+        total: 0,
+        evaluated: 0,
+        completed: 0,
+        iterations: 0
+      })
       return
     }
     // forkPolicy === 'success'
@@ -130,6 +175,14 @@ const run = async (): Promise<void> => {
     core.setOutput('evaluated-checks', '0')
     core.setOutput('completed-checks', '0')
     core.setOutput('polled-iterations', '0')
+    await writeSummary({
+      state: 'success',
+      mode: 'fork-success',
+      total: 0,
+      evaluated: 0,
+      completed: 0,
+      iterations: 0
+    })
     return
   }
 
@@ -145,8 +198,19 @@ const run = async (): Promise<void> => {
     isAutoMergeAlreadyEnabled: pr.auto_merge !== null
   })
 
+  core.info(`Mode: ${mode}`)
+  core.endGroup()
+
   if (mode === 'skip') {
     core.warning(`Skipping unsupported pull_request action: "${action}"`)
+    await writeSummary({
+      state: 'skipped',
+      mode: 'skip',
+      total: 0,
+      evaluated: 0,
+      completed: 0,
+      iterations: 0
+    })
     return
   }
 
@@ -165,6 +229,14 @@ const run = async (): Promise<void> => {
     core.setOutput('evaluated-checks', '0')
     core.setOutput('completed-checks', '0')
     core.setOutput('polled-iterations', '0')
+    await writeSummary({
+      state: 'pending',
+      mode: 'pending',
+      total: 0,
+      evaluated: 0,
+      completed: 0,
+      iterations: 0
+    })
     return
   }
 
@@ -215,9 +287,25 @@ const run = async (): Promise<void> => {
   // Polling has no internal timeout. The job's timeout-minutes will kill
   // this run if checks take too long; commit status remains as last
   // written (= the pending we set in pending mode).
+  core.startGroup('Polling')
   const pollResult = await pollUntilComplete(fetchRuns, {
-    intervalSeconds: inputs.pollIntervalSeconds
+    intervalSeconds: inputs.pollIntervalSeconds,
+    onIteration: (s) => {
+      core.info(
+        `Poll #${s.iteration}: state=${s.state}, ${s.completed}/${s.total} completed`
+      )
+    }
   })
+  core.endGroup()
+
+  core.startGroup('Result')
+  core.info(
+    `Polling finished: state=${pollResult.state}, iterations=${pollResult.iterations}`
+  )
+  core.info(
+    `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
+  )
+  core.endGroup()
 
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`
 
@@ -236,6 +324,15 @@ const run = async (): Promise<void> => {
   core.setOutput('evaluated-checks', String(lastEvaluated))
   core.setOutput('completed-checks', String(lastCompleted))
   core.setOutput('polled-iterations', String(pollResult.iterations))
+
+  await writeSummary({
+    state: pollResult.state,
+    mode: 'polling',
+    total: lastTotal,
+    evaluated: lastEvaluated,
+    completed: lastCompleted,
+    iterations: pollResult.iterations
+  })
 }
 
 run().catch((err: unknown) => {

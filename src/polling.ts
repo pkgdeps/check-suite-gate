@@ -1,8 +1,16 @@
 import { aggregate, type State } from './aggregator.js'
 import type { AggregatedCheckRun } from './filter.js'
 
+export type PollIterationSnapshot = {
+  iteration: number
+  state: State
+  total: number
+  completed: number
+}
+
 export type PollOptions = {
   intervalSeconds: number
+  onIteration?: (snapshot: PollIterationSnapshot) => void
 }
 
 export type PollResult = {
@@ -33,6 +41,13 @@ export const pollUntilComplete = async (
     try {
       const runs = await fetchRuns()
       const result = aggregate(runs)
+
+      options.onIteration?.({
+        iteration: iterations,
+        state: result.state,
+        total: result.total,
+        completed: result.completed
+      })
 
       if (result.state !== 'pending') {
         return { state: result.state, iterations }
