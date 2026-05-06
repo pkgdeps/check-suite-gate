@@ -73,13 +73,7 @@ describe('writeCheckRun', () => {
       details_url: 'https://example.com'
     })
 
-    expect(mocks.list).toHaveBeenCalledWith({
-      owner: 'o',
-      repo: 'r',
-      ref: 'abc',
-      check_name: 'automerge-gate/all-passed',
-      per_page: 100
-    })
+    expect(mocks.list).not.toHaveBeenCalled()
     expect(mocks.update).not.toHaveBeenCalled()
     expect(mocks.create).toHaveBeenCalledWith({
       owner: 'o',
@@ -135,7 +129,13 @@ describe('writeCheckRun', () => {
     )
   })
 
-  it('updates an existing check_run (matched by external_id) instead of creating a new one', async () => {
+  it('always creates a new check_run even when one already exists on the SHA', async () => {
+    // Regression: PATCHing an existing check_run leaves it in its original
+    // suite. The auto_merge_enabled run's suite stays without the
+    // required check, and GitHub's required-check evaluation against the
+    // latest suite blocks merge with "Expected — Waiting for status to
+    // be reported". Posting a fresh check_run per run keeps every suite
+    // populated.
     const existing: CheckRunListItem = {
       id: 9999,
       name: 'automerge-gate/all-passed',
@@ -152,67 +152,11 @@ describe('writeCheckRun', () => {
       sha: 'abc',
       state: 'success',
       name: 'automerge-gate/all-passed',
-      output: { title: 'All checks passed', summary: 'done' },
-      details_url: 'https://example.com'
+      output: { title: 'All checks passed', summary: 'done' }
     })
 
-    expect(mocks.create).not.toHaveBeenCalled()
-    expect(mocks.update).toHaveBeenCalledWith({
-      owner: 'o',
-      repo: 'r',
-      check_run_id: 9999,
-      status: 'completed',
-      conclusion: 'success',
-      output: { title: 'All checks passed', summary: 'done' },
-      details_url: 'https://example.com'
-    })
-  })
-
-  it('skips a same-name check_run with a different external_id (avoids hijacking)', async () => {
-    const unrelated: CheckRunListItem = {
-      id: 1234,
-      name: 'automerge-gate/all-passed',
-      status: 'completed',
-      conclusion: 'success',
-      external_id: 'someone-else',
-      app: { slug: 'other-app' }
-    }
-    const { octokit, mocks } = buildOctokit([unrelated])
-
-    await writeCheckRun(octokit, {
-      owner: 'o',
-      repo: 'r',
-      sha: 'abc',
-      state: 'pending',
-      name: 'automerge-gate/all-passed'
-    })
-
+    expect(mocks.list).not.toHaveBeenCalled()
     expect(mocks.update).not.toHaveBeenCalled()
-    expect(mocks.create).toHaveBeenCalledTimes(1)
-  })
-
-  it('retries on 5xx errors during list', async () => {
-    let attempt = 0
-    const { octokit, mocks } = buildOctokit([], {
-      listImpl: async () => {
-        attempt++
-        if (attempt === 1) throw { status: 500 }
-        return { data: { check_runs: [] } }
-      }
-    })
-
-    await writeCheckRun(
-      octokit,
-      {
-        owner: 'o',
-        repo: 'r',
-        sha: 'abc',
-        state: 'success',
-        name: 'ctx'
-      },
-      { retries: 3, baseDelayMs: 1 }
-    )
-    expect(mocks.list).toHaveBeenCalledTimes(2)
     expect(mocks.create).toHaveBeenCalledTimes(1)
   })
 
@@ -238,11 +182,38 @@ describe('writeCheckRun', () => {
     ).rejects.toEqual({ status: 422 })
     expect(mocks.create).toHaveBeenCalledTimes(1)
   })
+
+  it('retries on 5xx errors from create', async () => {
+    let attempt = 0
+    const { octokit, mocks } = buildOctokit([], {
+      createImpl: async () => {
+        attempt++
+        if (attempt === 1) throw { status: 500 }
+        return {}
+      }
+    })
+
+    await writeCheckRun(
+      octokit,
+      {
+        owner: 'o',
+        repo: 'r',
+        sha: 'abc',
+        state: 'success',
+        name: 'ctx'
+      },
+      { retries: 3, baseDelayMs: 1 }
+    )
+    expect(mocks.create).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('markCheckRunStale', () => {
-  it('PATCHes a matching check_run with conclusion: cancelled', async () => {
-    const existing: CheckRunListItem = {
+  it('PATCHes every matching check_run with conclusion: cancelled', async () => {
+    // writeCheckRun creates a fresh check_run per run, so a SHA carries
+    // multiple matches across multiple suites. All of them must be
+    // marked, otherwise stragglers keep the SHA visually "in progress".
+    const a: CheckRunListItem = {
       id: 4242,
       name: 'automerge-gate/all-passed',
       status: 'queued',
@@ -250,7 +221,8 @@ describe('markCheckRunStale', () => {
       external_id: CHECK_RUN_EXTERNAL_ID,
       app: { slug: 'github-actions' }
     }
-    const { octokit, mocks } = buildOctokit([existing])
+    const b: CheckRunListItem = { ...a, id: 4243 }
+    const { octokit, mocks } = buildOctokit([a, b])
 
     await markCheckRunStale(octokit, {
       owner: 'o',
@@ -266,10 +238,18 @@ describe('markCheckRunStale', () => {
       check_name: 'automerge-gate/all-passed',
       per_page: 100
     })
-    expect(mocks.update).toHaveBeenCalledWith({
+    expect(mocks.update).toHaveBeenCalledTimes(2)
+    expect(mocks.update).toHaveBeenNthCalledWith(1, {
       owner: 'o',
       repo: 'r',
       check_run_id: 4242,
+      status: 'completed',
+      conclusion: 'cancelled'
+    })
+    expect(mocks.update).toHaveBeenNthCalledWith(2, {
+      owner: 'o',
+      repo: 'r',
+      check_run_id: 4243,
       status: 'completed',
       conclusion: 'cancelled'
     })

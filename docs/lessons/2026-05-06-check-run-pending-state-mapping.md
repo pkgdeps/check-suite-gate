@@ -103,6 +103,33 @@ stale is not a member of ["success", "failure", "neutral", "cancelled", "timed_o
 - `action_required` は API レベルではうまく hit しても UI rendering が intent に合わないことがある (= UX を見て初めて分かる)。 後続の同種の検討では「色味どう描画される?」を最初に確認するルートにすると早い。
 - `stale` の制約は docs に明記されていない (許可値 list には載っている) のに API では reject される。 status の `waiting` などと違って事前に予測しにくい。 **API が許可値として list する値でも GitHub 内部用に予約されているケースがある** という前提を持っておく必要があった。
 
+## 3. find-or-create で PATCH してはいけない (suite mismatch)
+
+`writeCheckRun` を find-or-create にしてしまうと、 同一SHA上で複数 workflow run が走ったとき (例: synchronize → auto_merge_enabled) **古い run の suite に PATCH し続ける** ことになる。
+
+GitHub の required check 評価は **最新 suite に該当 check_run があるか** を見るので、 古い suite に閉じ込められた check_run が success でも、 最新 suite には何も無く 「Expected — Waiting for status to be reported」 として block される。
+
+実機検証 (PR #15, SHA `4cd559d` / `2e7cad8`):
+
+```
+Suite 1 (synchronize)            : gate + automerge-gate/self-test  ← PATCH 先
+Suite 2 (auto_merge_enabled)     : gate のみ
+Suite 3 (auto_merge_enabled re-) : gate のみ ← 最新だが required check 不在
+```
+
+GraphQL の `statusCheckRollup.state` は SUCCESS と返してくるが、 **`mergeStateStatus: BLOCKED`** が解消されない。
+
+### 修正
+
+`writeCheckRun` から find-or-create を撤去し、 **毎回 create** に変更。 各 workflow run の suite に必ず check_run が入る。 同名 check_run が複数できるが GitHub は最新 (= 一番新しいid) を required check 評価に使うので問題ない。
+
+代わりに `markCheckRunStale` は同一SHA上に複数の自分の check_run があり得る前提で、 全マッチを `cancelled` に PATCH する。
+
+### 何を見落としたか
+
+- 「同名 check_run が複数できると重複表示でうるさい」 という UX 心配が先行して find-or-create にしたが、 そもそも GitHub の required check 評価が **suite 単位で見る** という仕様を知らなかった
+- 早く気付くサインはあった: PR の `mergeStateStatus: BLOCKED` と `statusCheckRollup.state: SUCCESS` が **矛盾** していた時点で「GitHub 内部のキャッシュ」と決めつけず、 suite-by-suite で見るべきだった
+
 ## 関連
 
 - [docs/lessons/2026-05-05-check-suite-recursion-finding.md](./2026-05-05-check-suite-recursion-finding.md) — v1 設計の前提崩れ

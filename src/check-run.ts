@@ -54,15 +54,22 @@ const stateToCheckRunFields = (
   return { status: 'completed', conclusion: state }
 }
 
-// Writes the aggregated verdict as a check_run on the HEAD SHA. Replaces
-// the v1 commit-status write: check_runs allow PATCH-by-id, so the same
-// SHA's pending → success/failure transition is a single logical row in
-// the PR UI rather than two append-only status entries.
+// Writes the aggregated verdict as a check_run on the HEAD SHA. Always
+// POSTs a fresh check_run (no find-or-create / PATCH) because each
+// workflow run gets its own check_suite, and a check_run only ever
+// belongs to the suite it was created in.
 //
-// Find-or-create: each pull_request event triggers a fresh workflow run,
-// so pending mode and polling mode call this on the same SHA in two
-// different runs. We list existing check_runs by name + our external_id
-// marker, PATCH if found, POST otherwise.
+// If we PATCHed an existing check_run from a different run, the updated
+// row would stay in the *original* suite while the *latest* suite (the
+// auto_merge_enabled run's, the one that actually polled and decided
+// success) would not contain the required check. GitHub's required-
+// check evaluation against the latest suite then sees the entry as
+// "Expected — Waiting for status to be reported" and blocks merge,
+// even though the status_check_rollup over all suites returns SUCCESS.
+//
+// Posting a new check_run per run keeps the latest suite populated; for
+// duplicate-name evaluation GitHub picks the latest, so the verdict is
+// correct. The cost is one extra row per run in the PR Commits tab.
 export const writeCheckRun = async (
   octokit: OctokitLike,
   input: WriteCheckRunInput,
@@ -73,38 +80,6 @@ export const writeCheckRun = async (
 ): Promise<void> => {
   const { owner, repo, sha, state, name, output, details_url } = input
   const { status, conclusion } = stateToCheckRunFields(state)
-
-  const list = await withRetry(
-    () =>
-      octokit.rest.checks.listForRef({
-        owner,
-        repo,
-        ref: sha,
-        check_name: name,
-        per_page: 100
-      }),
-    retryOptions
-  )
-  const existing = list.data.check_runs.find(
-    (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
-  )
-
-  if (existing !== undefined) {
-    await withRetry(
-      () =>
-        octokit.rest.checks.update({
-          owner,
-          repo,
-          check_run_id: existing.id,
-          status,
-          conclusion,
-          output,
-          details_url
-        }) as Promise<unknown>,
-      retryOptions
-    )
-    return
-  }
 
   await withRetry(
     () =>
@@ -130,13 +105,16 @@ export type MarkCheckRunStaleInput = {
   name: string
 }
 
-// Marks the aggregated check_run on a previous SHA as superseded so the
-// PR's Commits tab no longer shows that SHA's row as a yellow-dot queued
-// entry forever. Called on `pull_request.synchronize` with the payload's
-// `before` SHA; no-ops silently if the previous SHA has no matching
-// check_run (e.g. the action wasn't installed when that SHA was HEAD,
-// or someone force-pushed and `before` is a SHA the action never wrote
-// to).
+// Marks all aggregated check_runs on a previous SHA as superseded so
+// the PR's Commits tab no longer shows the SHA as a yellow-dot queued
+// entry. Called on `pull_request.synchronize` with the payload's
+// `before` SHA; no-ops silently if no matching check_run exists.
+//
+// Patches every check_run with our external_id (not just the first):
+// since writeCheckRun creates a new check_run per workflow run, a SHA
+// can carry multiple of our check_runs across multiple suites, and
+// leaving any of them non-terminal would keep the SHA visually
+// "in progress".
 //
 // Uses `conclusion: cancelled` because `conclusion: stale` — the
 // semantically perfect fit — is reserved for GitHub's internal Actions
@@ -168,20 +146,21 @@ export const markCheckRunStale = async (
       }),
     retryOptions
   )
-  const existing = list.data.check_runs.find(
+  const ours = list.data.check_runs.filter(
     (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
   )
-  if (existing === undefined) return
 
-  await withRetry(
-    () =>
-      octokit.rest.checks.update({
-        owner,
-        repo,
-        check_run_id: existing.id,
-        status: 'completed',
-        conclusion: 'cancelled'
-      }) as Promise<unknown>,
-    retryOptions
-  )
+  for (const run of ours) {
+    await withRetry(
+      () =>
+        octokit.rest.checks.update({
+          owner,
+          repo,
+          check_run_id: run.id,
+          status: 'completed',
+          conclusion: 'cancelled'
+        }) as Promise<unknown>,
+      retryOptions
+    )
+  }
 }

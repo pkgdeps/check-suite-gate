@@ -24096,34 +24096,6 @@ var writeCheckRun = async (octokit, input, retryOptions = {
 }) => {
   const { owner, repo, sha, state, name, output, details_url } = input;
   const { status, conclusion } = stateToCheckRunFields(state);
-  const list = await withRetry(
-    () => octokit.rest.checks.listForRef({
-      owner,
-      repo,
-      ref: sha,
-      check_name: name,
-      per_page: 100
-    }),
-    retryOptions
-  );
-  const existing = list.data.check_runs.find(
-    (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
-  );
-  if (existing !== void 0) {
-    await withRetry(
-      () => octokit.rest.checks.update({
-        owner,
-        repo,
-        check_run_id: existing.id,
-        status,
-        conclusion,
-        output,
-        details_url
-      }),
-      retryOptions
-    );
-    return;
-  }
   await withRetry(
     () => octokit.rest.checks.create({
       owner,
@@ -24154,20 +24126,21 @@ var markCheckRunStale = async (octokit, input, retryOptions = {
     }),
     retryOptions
   );
-  const existing = list.data.check_runs.find(
+  const ours = list.data.check_runs.filter(
     (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
   );
-  if (existing === void 0) return;
-  await withRetry(
-    () => octokit.rest.checks.update({
-      owner,
-      repo,
-      check_run_id: existing.id,
-      status: "completed",
-      conclusion: "cancelled"
-    }),
-    retryOptions
-  );
+  for (const run2 of ours) {
+    await withRetry(
+      () => octokit.rest.checks.update({
+        owner,
+        repo,
+        check_run_id: run2.id,
+        status: "completed",
+        conclusion: "cancelled"
+      }),
+      retryOptions
+    );
+  }
 };
 
 // src/index.ts
