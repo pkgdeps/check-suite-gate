@@ -30,10 +30,14 @@ inputs:
     description: 'GitHub token used to read checks and write commit status'
     required: false
     default: ${{ github.token }}
+  fork-policy:
+    description: 'How to handle fork PRs. "skip" (default): write no status; required check remains missing/pending; maintainer must handle the PR manually. "success": write a success status, delegating gating to other required checks (e.g. ci.yml).'
+    required: false
+    default: 'skip'
 
 outputs:
   state:
-    description: 'Final commit status state: pending, success, or failure'
+    description: 'Final commit status state: pending, success, failure, or skipped (fork PR with fork-policy=skip)'
   total-checks:
     description: 'Number of check_runs observed before filtering'
   evaluated-checks:

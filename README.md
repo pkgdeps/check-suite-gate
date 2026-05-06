@@ -30,6 +30,32 @@ sequenceDiagram
 3. The gate flips the aggregated status to `success` (all checks green) or `failure` (any check red).
 4. GitHub's native auto-merge takes care of the actual merge once everything is green.
 
+### Fork PRs
+
+GitHub issues a read-only `GITHUB_TOKEN` for fork PRs by default, so writing a commit status would fail. The action detects fork PRs (by comparing head and base repository IDs) and behaves according to the `fork-policy` input:
+
+```mermaid
+sequenceDiagram
+    participant U as Maintainer
+    participant PR as Fork PR
+    participant Gate as automerge-gate
+
+    U->>PR: open / push from fork
+    Gate->>Gate: detect fork PR<br/>(head_repo.id ≠ base_repo.id)
+
+    alt fork-policy = skip (default)
+        Note over PR: No status written.<br/>Required check stays missing.<br/>Only an admin (with ruleset bypass)<br/>can merge.
+    else fork-policy = success
+        Gate->>PR: Aggregated status: success<br/>(gating delegated to other required checks)
+        Note over PR: Other required checks (e.g. ci.yml)<br/>still gate the merge.
+    end
+```
+
+- Use `skip` (default) when fork PRs are rare and you're comfortable having an admin bypass the ruleset to merge them. The required check stays missing, so non-admins can't merge.
+- Use `success` for OSS-style repositories where fork PRs are common. Pair it with another required check (e.g. ci.yml) that gates the fork's commits, so this action stays out of the way for forks while real gating still happens.
+
+Note: GitHub rulesets only support AND across required checks (no OR / conditional logic), so this action is the place where "all of these checks across workflows must pass" is expressed as a single status. The fork-policy input is the corresponding escape hatch for the case where the action itself can't run.
+
 ## Usage
 
 ```yaml
@@ -85,6 +111,7 @@ Then register `automerge-gate/all-passed` as a required status check in your rul
 | `ignore-apps` | no | (empty) | GitHub App slugs to exclude. Comma-separated **or newline-separated** |
 | `ignore-checks` | no | (empty) | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated** |
 | `token` | no | `${{ github.token }}` | GitHub token |
+| `fork-policy` | no | `skip` | How to handle fork PRs. `skip` writes no status (maintainer handles manually). `success` writes a success status, delegating gating to other required checks (e.g. ci.yml) |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
 
@@ -108,10 +135,11 @@ There is **no `timeout-seconds` input on purpose** — timeout is delegated enti
 
 ## Limitations
 
-- **Fork PRs** are not supported — secrets and write tokens behave differently across base/fork boundaries.
+- **Fork PRs**: GitHub Actions issues a read-only `GITHUB_TOKEN` for fork PRs by default, so the action cannot write a commit status. Use the `fork-policy` input to decide what should happen: `skip` (default) leaves the required check unset (maintainer handles the PR manually), `success` writes a success status delegating gating to other required checks. To actually run the polling loop on fork PRs, you would also need to enable "Send write tokens to workflows from fork pull requests" in repository settings — this is not verified in v1.
 - **Merge queue (`merge_group`)** is not supported in v1.
 - **Dead runner / job timeout**: if the runner is killed mid-polling (job hits `timeout-minutes`, dies physically, etc.), the commit status remains as it was last written (`pending`). The maintainer can disable then re-enable Auto Merge to re-trigger.
 - **Legacy commit status events**: third-party CI that writes via the legacy commit status API may not appear in `check_suite` and would not be aggregated. v2 does not handle the `status` event.
+- **Stale `pending` on past commits**: each push to a PR writes a `pending` status to the new HEAD SHA. GitHub's commit status API is append-only — past SHAs keep that `pending` in their history forever (no API to delete or overwrite). This has no effect on the PR's HEAD evaluation or on auto-merge (both look only at the latest SHA), but the per-commit hover in the PR's Commits tab will show `pending` for older SHAs.
 
 ## v1 (archived)
 

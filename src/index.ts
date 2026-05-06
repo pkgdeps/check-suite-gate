@@ -1,9 +1,16 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import { parseInputs } from './inputs.js'
-import { fetchAllCheckRuns, type OctokitLike } from './api.js'
+import {
+  fetchAllCheckRuns,
+  createWorkflowPathLookup,
+  type OctokitLike
+} from './api.js'
 import { applyFilters } from './filter.js'
-import { excludeOwnRuns } from './self-exclusion.js'
+import {
+  excludeOwnWorkflowRuns,
+  parseCurrentWorkflowPath
+} from './self-exclusion.js'
 import { pollUntilComplete } from './polling.js'
 import { buildTargetUrl, writeCommitStatus } from './status.js'
 
@@ -15,7 +22,8 @@ const run = async (): Promise<void> => {
     ignoreApps: core.getInput('ignore-apps'),
     ignoreChecks: core.getInput('ignore-checks'),
     token: core.getInput('token'),
-    pollIntervalSeconds: core.getInput('poll-interval-seconds')
+    pollIntervalSeconds: core.getInput('poll-interval-seconds'),
+    forkPolicy: core.getInput('fork-policy')
   })
 
   const ctx = github.context
@@ -49,6 +57,48 @@ const run = async (): Promise<void> => {
   })
 
   const octokit = github.getOctokit(inputs.token) as unknown as OctokitLike
+
+  // Detect fork PR: head_repo and base_repo differ.
+  // pr.head.repo can be null if the fork repo was deleted; treat as fork.
+  // Compare by id (immutable) rather than full_name (renames possible).
+  const baseRepoId = (pr as unknown as { base: { repo: { id: number } } }).base
+    .repo.id
+  const headRepo = (pr as unknown as { head: { repo: { id: number } | null } })
+    .head.repo
+  const isFork = headRepo == null || headRepo.id !== baseRepoId
+
+  if (isFork) {
+    if (inputs.forkPolicy === 'skip') {
+      core.info(
+        'Fork PR detected; skipping (no status written) per fork-policy=skip.'
+      )
+      core.setOutput('state', 'skipped')
+      core.setOutput('total-checks', '0')
+      core.setOutput('evaluated-checks', '0')
+      core.setOutput('completed-checks', '0')
+      core.setOutput('polled-iterations', '0')
+      return
+    }
+    // forkPolicy === 'success'
+    core.info(
+      'Fork PR detected; writing success status per fork-policy=success.'
+    )
+    await writeCommitStatus(octokit, {
+      owner: ctx.repo.owner,
+      repo: ctx.repo.repo,
+      sha,
+      state: 'success',
+      context: inputs.context,
+      description: 'Fork PR: gating delegated to other required checks',
+      target_url: targetUrl
+    })
+    core.setOutput('state', 'success')
+    core.setOutput('total-checks', '0')
+    core.setOutput('evaluated-checks', '0')
+    core.setOutput('completed-checks', '0')
+    core.setOutput('polled-iterations', '0')
+    return
+  }
 
   // Pending mode: PR was opened / synchronized / reopened.
   // Write a pending status with an action-item description and exit.
@@ -84,6 +134,15 @@ const run = async (): Promise<void> => {
   let lastEvaluated = 0
   let lastCompleted = 0
 
+  const currentWorkflowPath = parseCurrentWorkflowPath(
+    process.env.GITHUB_WORKFLOW_REF
+  )
+  const lookupWorkflowPath = createWorkflowPathLookup(
+    octokit,
+    ctx.repo.owner,
+    ctx.repo.repo
+  )
+
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(
@@ -98,7 +157,11 @@ const run = async (): Promise<void> => {
         inputs.ignoreApps,
         inputs.ignoreChecks
       )
-      const afterSelf = excludeOwnRuns(afterFilters, runId)
+      const afterSelf = await excludeOwnWorkflowRuns(
+        afterFilters,
+        currentWorkflowPath,
+        lookupWorkflowPath
+      )
       lastEvaluated = afterSelf.length
       lastCompleted = afterSelf.filter((r) => r.status === 'completed').length
       return afterSelf

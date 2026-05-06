@@ -17581,12 +17581,12 @@ var require_lib = __commonJS({
             throw new Error("Client has already been disposed.");
           }
           const parsedUrl = new URL(requestUrl);
-          let info = this._prepareRequest(verb, parsedUrl, headers);
+          let info2 = this._prepareRequest(verb, parsedUrl, headers);
           const maxTries = this._allowRetries && RetryableHttpVerbs.includes(verb) ? this._maxRetries + 1 : 1;
           let numTries = 0;
           let response;
           do {
-            response = yield this.requestRaw(info, data);
+            response = yield this.requestRaw(info2, data);
             if (response && response.message && response.message.statusCode === HttpCodes.Unauthorized) {
               let authenticationHandler;
               for (const handler of this.handlers) {
@@ -17596,7 +17596,7 @@ var require_lib = __commonJS({
                 }
               }
               if (authenticationHandler) {
-                return authenticationHandler.handleAuthentication(this, info, data);
+                return authenticationHandler.handleAuthentication(this, info2, data);
               } else {
                 return response;
               }
@@ -17619,8 +17619,8 @@ var require_lib = __commonJS({
                   }
                 }
               }
-              info = this._prepareRequest(verb, parsedRedirectUrl, headers);
-              response = yield this.requestRaw(info, data);
+              info2 = this._prepareRequest(verb, parsedRedirectUrl, headers);
+              response = yield this.requestRaw(info2, data);
               redirectsRemaining--;
             }
             if (!response.message.statusCode || !HttpResponseRetryCodes.includes(response.message.statusCode)) {
@@ -17649,7 +17649,7 @@ var require_lib = __commonJS({
        * @param info
        * @param data
        */
-      requestRaw(info, data) {
+      requestRaw(info2, data) {
         return __awaiter(this, void 0, void 0, function* () {
           return new Promise((resolve, reject) => {
             function callbackForResult(err, res) {
@@ -17661,7 +17661,7 @@ var require_lib = __commonJS({
                 resolve(res);
               }
             }
-            this.requestRawWithCallback(info, data, callbackForResult);
+            this.requestRawWithCallback(info2, data, callbackForResult);
           });
         });
       }
@@ -17671,12 +17671,12 @@ var require_lib = __commonJS({
        * @param data
        * @param onResult
        */
-      requestRawWithCallback(info, data, onResult) {
+      requestRawWithCallback(info2, data, onResult) {
         if (typeof data === "string") {
-          if (!info.options.headers) {
-            info.options.headers = {};
+          if (!info2.options.headers) {
+            info2.options.headers = {};
           }
-          info.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
+          info2.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
         }
         let callbackCalled = false;
         function handleResult(err, res) {
@@ -17685,7 +17685,7 @@ var require_lib = __commonJS({
             onResult(err, res);
           }
         }
-        const req = info.httpModule.request(info.options, (msg) => {
+        const req = info2.httpModule.request(info2.options, (msg) => {
           const res = new HttpClientResponse(msg);
           handleResult(void 0, res);
         });
@@ -17697,7 +17697,7 @@ var require_lib = __commonJS({
           if (socket) {
             socket.end();
           }
-          handleResult(new Error(`Request timeout: ${info.options.path}`));
+          handleResult(new Error(`Request timeout: ${info2.options.path}`));
         });
         req.on("error", function(err) {
           handleResult(err);
@@ -17733,27 +17733,27 @@ var require_lib = __commonJS({
         return this._getProxyAgentDispatcher(parsedUrl, proxyUrl);
       }
       _prepareRequest(method, requestUrl, headers) {
-        const info = {};
-        info.parsedUrl = requestUrl;
-        const usingSsl = info.parsedUrl.protocol === "https:";
-        info.httpModule = usingSsl ? https : http;
+        const info2 = {};
+        info2.parsedUrl = requestUrl;
+        const usingSsl = info2.parsedUrl.protocol === "https:";
+        info2.httpModule = usingSsl ? https : http;
         const defaultPort = usingSsl ? 443 : 80;
-        info.options = {};
-        info.options.host = info.parsedUrl.hostname;
-        info.options.port = info.parsedUrl.port ? parseInt(info.parsedUrl.port) : defaultPort;
-        info.options.path = (info.parsedUrl.pathname || "") + (info.parsedUrl.search || "");
-        info.options.method = method;
-        info.options.headers = this._mergeHeaders(headers);
+        info2.options = {};
+        info2.options.host = info2.parsedUrl.hostname;
+        info2.options.port = info2.parsedUrl.port ? parseInt(info2.parsedUrl.port) : defaultPort;
+        info2.options.path = (info2.parsedUrl.pathname || "") + (info2.parsedUrl.search || "");
+        info2.options.method = method;
+        info2.options.headers = this._mergeHeaders(headers);
         if (this.userAgent != null) {
-          info.options.headers["user-agent"] = this.userAgent;
+          info2.options.headers["user-agent"] = this.userAgent;
         }
-        info.options.agent = this._getAgent(info.parsedUrl);
+        info2.options.agent = this._getAgent(info2.parsedUrl);
         if (this.handlers) {
           for (const handler of this.handlers) {
-            handler.prepareRequest(info.options);
+            handler.prepareRequest(info2.options);
           }
         }
-        return info;
+        return info2;
       }
       _mergeHeaders(headers) {
         if (this.requestOptions && this.requestOptions.headers) {
@@ -19743,10 +19743,10 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       (0, command_1.issueCommand)("notice", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
     exports2.notice = notice;
-    function info(message) {
+    function info2(message) {
       process.stdout.write(message + os.EOL);
     }
-    exports2.info = info;
+    exports2.info = info2;
     function startGroup(name) {
       (0, command_1.issue)("group", name);
     }
@@ -23907,6 +23907,12 @@ var parsePositiveInt = (raw, name) => {
   }
   return n;
 };
+var parseForkPolicy = (raw) => {
+  if (raw === "skip" || raw === "success") return raw;
+  throw new Error(
+    `input \`fork-policy\` must be "skip" or "success" (got: "${raw}")`
+  );
+};
 var parseInputs = (raw) => {
   if (raw.token.trim().length === 0) {
     throw new Error("input `token` must not be empty");
@@ -23919,7 +23925,8 @@ var parseInputs = (raw) => {
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
       "poll-interval-seconds"
-    )
+    ),
+    forkPolicy: parseForkPolicy(raw.forkPolicy)
   };
 };
 
@@ -23956,6 +23963,26 @@ var fetchAllCheckRuns = async (octokit, owner, repo, sha) => {
   }
   return runs;
 };
+var createWorkflowPathLookup = (octokit, owner, repo) => {
+  const cache = /* @__PURE__ */ new Map();
+  return async (runId) => {
+    if (cache.has(runId)) {
+      return cache.get(runId) ?? null;
+    }
+    try {
+      const result = await withRetry(
+        () => octokit.rest.actions.getWorkflowRun({ owner, repo, run_id: runId }),
+        { retries: 3, baseDelayMs: 500 }
+      );
+      const path2 = result.data.path;
+      cache.set(runId, path2);
+      return path2;
+    } catch {
+      cache.set(runId, null);
+      return null;
+    }
+  };
+};
 var withRetry = async (fn, options) => {
   let lastErr;
   for (let attempt = 0; attempt <= options.retries; attempt++) {
@@ -23980,12 +24007,34 @@ var extractRunId = (detailsUrl) => {
   if (match === null) return null;
   return Number.parseInt(match[1], 10);
 };
-var isOwnRun = (run2, ownRunId) => {
-  if (run2.app.slug !== "github-actions") return false;
-  const runId = extractRunId(run2.details_url);
-  return runId === ownRunId;
+var parseCurrentWorkflowPath = (workflowRef) => {
+  if (workflowRef === void 0 || workflowRef.length === 0) return null;
+  const atIndex = workflowRef.indexOf("@");
+  const beforeAt = atIndex === -1 ? workflowRef : workflowRef.slice(0, atIndex);
+  const parts = beforeAt.split("/");
+  if (parts.length < 3) return null;
+  return parts.slice(2).join("/");
 };
-var excludeOwnRuns = (runs, ownRunId) => runs.filter((r) => !isOwnRun(r, ownRunId));
+var isFromSameWorkflow = async (run2, currentWorkflowPath, lookupWorkflowPath) => {
+  if (run2.app.slug !== "github-actions") return false;
+  if (currentWorkflowPath === null) return false;
+  const runId = extractRunId(run2.details_url);
+  if (runId === null) return false;
+  const path2 = await lookupWorkflowPath(runId);
+  return path2 === currentWorkflowPath;
+};
+var excludeOwnWorkflowRuns = async (runs, currentWorkflowPath, lookupWorkflowPath) => {
+  const keep = [];
+  for (const r of runs) {
+    const own = await isFromSameWorkflow(
+      r,
+      currentWorkflowPath,
+      lookupWorkflowPath
+    );
+    if (!own) keep.push(r);
+  }
+  return keep;
+};
 
 // src/conclusion.ts
 var GREEN_CONCLUSIONS = /* @__PURE__ */ new Set(["success", "skipped", "neutral"]);
@@ -24048,7 +24097,8 @@ var run = async () => {
     ignoreApps: core.getInput("ignore-apps"),
     ignoreChecks: core.getInput("ignore-checks"),
     token: core.getInput("token"),
-    pollIntervalSeconds: core.getInput("poll-interval-seconds")
+    pollIntervalSeconds: core.getInput("poll-interval-seconds"),
+    forkPolicy: core.getInput("fork-policy")
   });
   const ctx = github.context;
   if (ctx.eventName !== "pull_request") {
@@ -24075,6 +24125,40 @@ var run = async () => {
     runAttempt
   });
   const octokit = github.getOctokit(inputs.token);
+  const baseRepoId = pr.base.repo.id;
+  const headRepo = pr.head.repo;
+  const isFork = headRepo == null || headRepo.id !== baseRepoId;
+  if (isFork) {
+    if (inputs.forkPolicy === "skip") {
+      core.info(
+        "Fork PR detected; skipping (no status written) per fork-policy=skip."
+      );
+      core.setOutput("state", "skipped");
+      core.setOutput("total-checks", "0");
+      core.setOutput("evaluated-checks", "0");
+      core.setOutput("completed-checks", "0");
+      core.setOutput("polled-iterations", "0");
+      return;
+    }
+    core.info(
+      "Fork PR detected; writing success status per fork-policy=success."
+    );
+    await writeCommitStatus(octokit, {
+      owner: ctx.repo.owner,
+      repo: ctx.repo.repo,
+      sha,
+      state: "success",
+      context: inputs.context,
+      description: "Fork PR: gating delegated to other required checks",
+      target_url: targetUrl
+    });
+    core.setOutput("state", "success");
+    core.setOutput("total-checks", "0");
+    core.setOutput("evaluated-checks", "0");
+    core.setOutput("completed-checks", "0");
+    core.setOutput("polled-iterations", "0");
+    return;
+  }
   if (action === "opened" || action === "synchronize" || action === "reopened") {
     await writeCommitStatus(octokit, {
       owner: ctx.repo.owner,
@@ -24099,6 +24183,14 @@ var run = async () => {
   let lastTotal = 0;
   let lastEvaluated = 0;
   let lastCompleted = 0;
+  const currentWorkflowPath = parseCurrentWorkflowPath(
+    process.env.GITHUB_WORKFLOW_REF
+  );
+  const lookupWorkflowPath = createWorkflowPathLookup(
+    octokit,
+    ctx.repo.owner,
+    ctx.repo.repo
+  );
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(
@@ -24113,7 +24205,11 @@ var run = async () => {
         inputs.ignoreApps,
         inputs.ignoreChecks
       );
-      const afterSelf = excludeOwnRuns(afterFilters, runId);
+      const afterSelf = await excludeOwnWorkflowRuns(
+        afterFilters,
+        currentWorkflowPath,
+        lookupWorkflowPath
+      );
       lastEvaluated = afterSelf.length;
       lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
       return afterSelf;

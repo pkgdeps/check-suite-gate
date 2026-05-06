@@ -13,19 +13,57 @@ export const extractRunId = (detailsUrl: string): number | null => {
   return Number.parseInt(match[1], 10)
 }
 
-// A check_run is "ours" iff it was created by the GitHub Actions app
-// for the very workflow run executing this code (matched by GITHUB_RUN_ID).
-// Other apps that happen to embed the same number must NOT be filtered.
-export const isOwnRun = (
-  run: AggregatedCheckRun,
-  ownRunId: number
-): boolean => {
-  if (run.app.slug !== 'github-actions') return false
-  const runId = extractRunId(run.details_url)
-  return runId === ownRunId
+// Parses GITHUB_WORKFLOW_REF like
+//   "owner/repo/.github/workflows/foo.yml@refs/heads/main"
+// into ".github/workflows/foo.yml" (the path part).
+// Returns null if the env var is missing or doesn't match the expected shape.
+export const parseCurrentWorkflowPath = (
+  workflowRef: string | undefined
+): string | null => {
+  if (workflowRef === undefined || workflowRef.length === 0) return null
+  const atIndex = workflowRef.indexOf('@')
+  const beforeAt = atIndex === -1 ? workflowRef : workflowRef.slice(0, atIndex)
+  // Strip leading "owner/repo/"
+  const parts = beforeAt.split('/')
+  if (parts.length < 3) return null
+  return parts.slice(2).join('/')
 }
 
-export const excludeOwnRuns = (
+// True iff the check_run was produced by the same workflow file as the
+// currently executing run. Used to filter out:
+//   1. The current run's own check_runs (the in-progress self-job).
+//   2. Past runs of the same workflow that completed earlier on this SHA
+//      (e.g. cancelled by cancel-in-progress concurrency).
+// Both must be excluded so the aggregator doesn't pick up stale or
+// self-referencing results.
+export type WorkflowPathLookup = (runId: number) => Promise<string | null>
+
+export const isFromSameWorkflow = async (
+  run: AggregatedCheckRun,
+  currentWorkflowPath: string | null,
+  lookupWorkflowPath: WorkflowPathLookup
+): Promise<boolean> => {
+  if (run.app.slug !== 'github-actions') return false
+  if (currentWorkflowPath === null) return false
+  const runId = extractRunId(run.details_url)
+  if (runId === null) return false
+  const path = await lookupWorkflowPath(runId)
+  return path === currentWorkflowPath
+}
+
+export const excludeOwnWorkflowRuns = async (
   runs: AggregatedCheckRun[],
-  ownRunId: number
-): AggregatedCheckRun[] => runs.filter((r) => !isOwnRun(r, ownRunId))
+  currentWorkflowPath: string | null,
+  lookupWorkflowPath: WorkflowPathLookup
+): Promise<AggregatedCheckRun[]> => {
+  const keep: AggregatedCheckRun[] = []
+  for (const r of runs) {
+    const own = await isFromSameWorkflow(
+      r,
+      currentWorkflowPath,
+      lookupWorkflowPath
+    )
+    if (!own) keep.push(r)
+  }
+  return keep
+}

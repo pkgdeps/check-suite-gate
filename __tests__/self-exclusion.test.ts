@@ -1,31 +1,37 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   RUN_ID_REGEX,
   extractRunId,
-  isOwnRun,
-  excludeOwnRuns
+  parseCurrentWorkflowPath,
+  isFromSameWorkflow,
+  excludeOwnWorkflowRuns
 } from '../src/self-exclusion.js'
 import type { AggregatedCheckRun } from '../src/filter.js'
 
-const make = (appSlug: string, detailsUrl: string): AggregatedCheckRun => ({
+const make = (
+  appSlug: string,
+  detailsUrl: string,
+  override: Partial<AggregatedCheckRun> = {}
+): AggregatedCheckRun => ({
   id: 1,
-  name: 'test',
+  name: 'gate',
   status: 'completed',
-  conclusion: 'success',
+  conclusion: 'cancelled',
   details_url: detailsUrl,
   app: { slug: appSlug },
-  suite_id: 1
+  suite_id: 1,
+  ...override
 })
 
 describe('RUN_ID_REGEX', () => {
-  it('matches the documented details_url shape and asserts on extraction', () => {
+  it('matches the documented details_url shape', () => {
     const url = 'https://github.com/owner/repo/actions/runs/12345/job/67890'
     const match = url.match(RUN_ID_REGEX)
     expect(match).not.toBeNull()
     expect(match?.[1]).toBe('12345')
   })
 
-  it('does NOT match unrelated URLs (guards against silent format change)', () => {
+  it('does not match unrelated URLs', () => {
     expect(
       'https://github.com/owner/repo/pull/1'.match(RUN_ID_REGEX)
     ).toBeNull()
@@ -34,61 +40,145 @@ describe('RUN_ID_REGEX', () => {
 })
 
 describe('extractRunId', () => {
-  it('returns the numeric run_id from a valid details_url', () => {
-    expect(
-      extractRunId('https://github.com/owner/repo/actions/runs/42/job/100')
-    ).toBe(42)
+  it('returns the numeric run_id', () => {
+    expect(extractRunId('https://github.com/o/r/actions/runs/42/job/100')).toBe(
+      42
+    )
   })
+
   it('returns null for non-matching URLs', () => {
     expect(extractRunId('https://example.com')).toBeNull()
   })
 })
 
-describe('isOwnRun', () => {
-  it('flags github-actions check_runs whose run_id matches GITHUB_RUN_ID', () => {
-    const run = make(
-      'github-actions',
-      'https://github.com/owner/repo/actions/runs/9999/job/1'
-    )
-    expect(isOwnRun(run, 9999)).toBe(true)
+describe('parseCurrentWorkflowPath', () => {
+  it('parses GITHUB_WORKFLOW_REF format', () => {
+    expect(
+      parseCurrentWorkflowPath(
+        'owner/repo/.github/workflows/test-self.yml@refs/heads/main'
+      )
+    ).toBe('.github/workflows/test-self.yml')
   })
 
-  it('does not flag check_runs from other apps even with the same run_id', () => {
-    const run = make(
-      'cloudflare-pages',
-      'https://github.com/owner/repo/actions/runs/9999/job/1'
-    )
-    expect(isOwnRun(run, 9999)).toBe(false)
+  it('handles refs containing extra slashes (e.g. branch with /)', () => {
+    expect(
+      parseCurrentWorkflowPath(
+        'owner/repo/.github/workflows/foo.yml@refs/heads/feat/fork-policy'
+      )
+    ).toBe('.github/workflows/foo.yml')
   })
 
-  it('does not flag check_runs with a different run_id', () => {
-    const run = make(
-      'github-actions',
-      'https://github.com/owner/repo/actions/runs/1/job/1'
-    )
-    expect(isOwnRun(run, 9999)).toBe(false)
+  it('returns null for empty / undefined input', () => {
+    expect(parseCurrentWorkflowPath(undefined)).toBeNull()
+    expect(parseCurrentWorkflowPath('')).toBeNull()
   })
 
-  it('does not flag check_runs with a malformed details_url', () => {
-    const run = make('github-actions', 'https://example.com')
-    expect(isOwnRun(run, 9999)).toBe(false)
+  it('returns null for malformed input', () => {
+    expect(parseCurrentWorkflowPath('owner/repo')).toBeNull()
   })
 })
 
-describe('excludeOwnRuns', () => {
-  it('removes only own runs and preserves order of others', () => {
+describe('isFromSameWorkflow', () => {
+  it('returns true when app=github-actions and workflow path matches', async () => {
+    const lookup = vi.fn().mockResolvedValue('.github/workflows/test-self.yml')
+    const run = make(
+      'github-actions',
+      'https://github.com/o/r/actions/runs/9999/job/1'
+    )
+    expect(
+      await isFromSameWorkflow(run, '.github/workflows/test-self.yml', lookup)
+    ).toBe(true)
+    expect(lookup).toHaveBeenCalledWith(9999)
+  })
+
+  it('returns false for different app slug', async () => {
+    const lookup = vi.fn()
+    const run = make(
+      'cloudflare-pages',
+      'https://github.com/o/r/actions/runs/9999/job/1'
+    )
+    expect(
+      await isFromSameWorkflow(run, '.github/workflows/test-self.yml', lookup)
+    ).toBe(false)
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('returns false when workflow path differs', async () => {
+    const lookup = vi.fn().mockResolvedValue('.github/workflows/other.yml')
+    const run = make(
+      'github-actions',
+      'https://github.com/o/r/actions/runs/1/job/1'
+    )
+    expect(
+      await isFromSameWorkflow(run, '.github/workflows/test-self.yml', lookup)
+    ).toBe(false)
+  })
+
+  it('returns false when current workflow path is null', async () => {
+    const lookup = vi.fn()
+    const run = make(
+      'github-actions',
+      'https://github.com/o/r/actions/runs/1/job/1'
+    )
+    expect(await isFromSameWorkflow(run, null, lookup)).toBe(false)
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('returns false when details_url is malformed', async () => {
+    const lookup = vi.fn()
+    const run = make('github-actions', 'https://example.com')
+    expect(
+      await isFromSameWorkflow(run, '.github/workflows/test-self.yml', lookup)
+    ).toBe(false)
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('returns false when lookup returns null (run not found / api error)', async () => {
+    const lookup = vi.fn().mockResolvedValue(null)
+    const run = make(
+      'github-actions',
+      'https://github.com/o/r/actions/runs/1/job/1'
+    )
+    expect(
+      await isFromSameWorkflow(run, '.github/workflows/test-self.yml', lookup)
+    ).toBe(false)
+  })
+})
+
+describe('excludeOwnWorkflowRuns', () => {
+  it('removes only own-workflow runs and preserves order of others', async () => {
+    const lookup = vi.fn(async (runId: number) => {
+      if (runId === 1 || runId === 2) return '.github/workflows/test-self.yml'
+      return '.github/workflows/other.yml'
+    })
     const runs = [
       make('github-actions', 'https://github.com/o/r/actions/runs/1/job/1'),
       make('github-actions', 'https://github.com/o/r/actions/runs/9999/job/1'),
       make(
         'cloudflare-pages',
-        'https://github.com/o/r/actions/runs/9999/job/1'
+        'https://github.com/o/r/actions/runs/9999/job/2'
       ),
-      make('github-actions', 'https://github.com/o/r/actions/runs/9999/job/2')
+      make('github-actions', 'https://github.com/o/r/actions/runs/2/job/3')
     ]
-    const result = excludeOwnRuns(runs, 9999)
+    const result = await excludeOwnWorkflowRuns(
+      runs,
+      '.github/workflows/test-self.yml',
+      lookup
+    )
     expect(result).toHaveLength(2)
-    expect(result[0].details_url).toContain('runs/1/')
+    expect(result[0].details_url).toContain('runs/9999/')
+    expect(result[1].details_url).toContain('runs/9999/')
     expect(result[1].app.slug).toBe('cloudflare-pages')
+  })
+
+  it('keeps all runs when current workflow path is null', async () => {
+    const lookup = vi.fn()
+    const runs = [
+      make('github-actions', 'https://github.com/o/r/actions/runs/1/job/1'),
+      make('github-actions', 'https://github.com/o/r/actions/runs/2/job/1')
+    ]
+    const result = await excludeOwnWorkflowRuns(runs, null, lookup)
+    expect(result).toHaveLength(2)
+    expect(lookup).not.toHaveBeenCalled()
   })
 })
