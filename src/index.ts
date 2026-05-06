@@ -16,13 +16,13 @@ import { buildTargetUrl, writeCommitStatus } from './status.js'
 
 const PENDING_DESCRIPTION = 'Awaiting Auto Merge enable'
 
-// pull_request activity types that represent the PR lifecycle (a new SHA
-// landed on the PR). These trigger pending mode by default, or polling
-// mode when Auto Merge is already enabled.
-const PR_LIFECYCLE_ACTIONS = ['opened', 'synchronize', 'reopened'] as const
-type PrLifecycleAction = (typeof PR_LIFECYCLE_ACTIONS)[number]
-const isLifecycleAction = (a: string): a is PrLifecycleAction =>
-  (PR_LIFECYCLE_ACTIONS as readonly string[]).includes(a)
+// pull_request activity types that may bring a new HEAD SHA to the PR.
+// The gate re-evaluates the SHA on these. Triggers pending mode by default,
+// or polling mode when Auto Merge is already enabled.
+const HEAD_SHA_ACTIONS = ['opened', 'synchronize', 'reopened'] as const
+type HeadShaAction = (typeof HEAD_SHA_ACTIONS)[number]
+const isHeadShaAction = (a: string): a is HeadShaAction =>
+  (HEAD_SHA_ACTIONS as readonly string[]).includes(a)
 
 const run = async (): Promise<void> => {
   const inputs = parseInputs({
@@ -118,14 +118,14 @@ const run = async (): Promise<void> => {
   // the PR (e.g. a Renovate-style auto-merge-on-creation PR).
   // Pending mode: a new SHA landed but Auto Merge is not yet enabled. We
   // just mark the required check pending so the merge stays blocked.
-  const isAutoMergeEnabled = pr.auto_merge !== null
-  const isPrLifecycleEvent = isLifecycleAction(action)
+  const isAutoMergeAlreadyEnabled = pr.auto_merge !== null
+  const isHeadShaEvent = isHeadShaAction(action)
 
   const isPollingMode =
     action === 'auto_merge_enabled' ||
-    (isPrLifecycleEvent && isAutoMergeEnabled)
+    (isHeadShaEvent && isAutoMergeAlreadyEnabled)
 
-  const isPendingMode = !isPollingMode && isPrLifecycleEvent
+  const isPendingMode = !isPollingMode && isHeadShaEvent
 
   if (isPendingMode) {
     await writeCommitStatus(octokit, {
