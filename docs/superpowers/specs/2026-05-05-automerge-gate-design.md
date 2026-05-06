@@ -38,17 +38,24 @@ v2 では起点を `pull_request.auto_merge_enabled` に切り替え、 polling 
 
 ## 設計概要
 
+action は 2 つのモードを 1 つの workflow で兼ねる:
+
 ```
-PR 作成 / push
+PR opened / push (synchronize) / reopened
   ↓
-集約 commit status は書かれない (= pending、 required check として merge ブロック)
-個々の CI workflows は通常通り起動 (push event)
+GitHub が pull_request.{opened, synchronize, reopened} event を発火
   ↓
+automerge-gate workflow が pending モードで起動
+  ↓
+集約 status を pending で書く (description: "Awaiting Auto Merge enable")
+  ↓ exit (数秒)
+
+
 maintainer が "Enable Auto Merge" を押す
   ↓
 GitHub が pull_request.auto_merge_enabled event を発火
   ↓
-automerge-gate workflow が起動
+automerge-gate workflow が polling モードで起動
   ↓
 Loop {
   listSuitesForRef + listForSuite で同 SHA の全 check_run を取得
@@ -63,6 +70,8 @@ timeout-seconds 到達 → on-timeout に従って failure or pending を書き�
 集約 status が failure → auto-merge ブロック (maintainer 対処)
 ```
 
+**pending モード**を別途持つ理由は、 PR の Checks UI に最初から `automerge-gate/all-passed - pending - Awaiting Auto Merge enable` を表示することで maintainer の action item を明示するため。 GitHub の required status check は context 名 identify で「一度も書かれていない context」 は missing 扱いになり、 UI から context が見えなくなる挙動を回避する。
+
 利用者は `.github/workflows/automerge-gate.yaml` を 1 ファイル設置し、 ruleset で `automerge-gate/all-passed` を required 登録するだけ。
 
 ### 利用者側の YAML
@@ -73,7 +82,7 @@ name: automerge-gate
 
 on:
   pull_request:
-    types: [auto_merge_enabled]
+    types: [opened, synchronize, reopened, auto_merge_enabled]
 
 permissions:
   statuses: write
@@ -81,20 +90,30 @@ permissions:
   pull-requests: read
   actions: read
 
+# 同 PR で複数 event が並列起動するのを防ぐ。 Auto Merge の disable→enable 連打にも対応
+concurrency:
+  group: automerge-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 11   # action 内 timeout-seconds (default 600 = 10 分) より少し長め
     steps:
       - uses: pkgdeps/automerge-gate@v1
         with:
           context: 'automerge-gate/all-passed'
-          # オプション
-          poll-interval-seconds: '30'
-          timeout-seconds: '3600'
-          on-timeout: 'failure'
-          ignore-apps: 'dependabot'
-          ignore-checks: 'optional-*,docs-only'
+          # オプション。 ignore-apps / ignore-checks はカンマ区切りでも改行区切りでも書ける
+          ignore-apps: |
+            dependabot
+            renovate
+          ignore-checks: |
+            optional-*
+            docs-only
+            ci / lint
 ```
+
+`timeout-seconds` / `poll-interval-seconds` / `on-timeout` はすべて optional で、 デフォルト値 (600 / 30 / failure) で問題ない場合は省略してよい。
 
 ### ruleset 側
 
@@ -113,6 +132,17 @@ resource "github_repository_ruleset" "main" {
 `automerge-gate/all-passed` を required にすると、 「Enable Auto Merge を押すまで pending → 押した瞬間 gate が動いて評価 → 緑なら GitHub 純正 auto-merge が merge」 のフローになる。 通常の review merge をする場合は手動で merge できる (required check は green でなくても admin override 可能、 もしくは required から外す運用)。
 
 ## 動作詳細
+
+### pending モードと polling モードの分岐
+
+Action は `github.event.action` (= activity type) を見て 2 つのモードを切り替える:
+
+| event activity type | モード | 動作 |
+|---|---|---|
+| `opened` / `synchronize` / `reopened` | **pending モード** | 集約 status を `pending` で書く (description: `Awaiting Auto Merge enable`)、 即 exit (数秒) |
+| `auto_merge_enabled` | **polling モード** | 後述の polling loop で集約評価 |
+
+pending モードは数秒で完了するので runner cost はほぼ無視できる。 push のたびに起動するが、 head_sha が変わるたび新 SHA に対して pending を書き直す必要があるため synchronize も含める。
 
 ### `pull_request.auto_merge_enabled` event の選択理由
 
@@ -149,12 +179,14 @@ GitHub Docs の「About status checks」 標準解釈を踏襲。 自前で再�
 
 ### polling timeout の挙動
 
-`timeout-seconds` (default 3600 = 60 分) を超えても全 check が完了しなければ、 `on-timeout` 設定に従って終了:
+`timeout-seconds` (default 600 = 10 分) を超えても全 check が完了しなければ、 `on-timeout` 設定に従って終了:
 
 - `on-timeout: failure` (default) — 集約 status を **failure** で書き込む。 GitHub 純正 auto-merge は failure を見て自動 merge を諦める。 maintainer は CI を再実行 / fix push / Auto Merge を解除して手動対処
 - `on-timeout: pending` — 集約 status を pending のまま放置 (新たに書き込まない)。 必要なら maintainer が disable→enable で再起動
 
-なお polling 中の workflow run は GitHub Actions の job の `timeout-minutes` (default 360 = 6 時間) でも切られる。 `timeout-seconds` は `job.timeout-minutes * 60` 以下にすべき。
+`timeout-seconds` は merge-gatekeeper / DataDog ensure-ci-success の慣習 (10 分前後) に揃える。 重い CI で足りない場合は input で延ばす。
+
+利用者は job レベルの `timeout-minutes` も合わせて設定する。 `timeout-seconds` よりわずかに長め (例 `600` 秒 + 1 分の buffer = `timeout-minutes: 11`) にしておくと、 action が timeout 処理を完了する余地が残る。 この組み合わせは「利用者側の YAML」 の例で示している。
 
 ### 自分自身の除外
 
@@ -209,10 +241,10 @@ monorepo で path filter により workflow が skip された場合、 GitHub �
 |---|---|---|---|
 | `context` | no | `automerge-gate/all-passed` | 書き込む commit status の context 名 |
 | `poll-interval-seconds` | no | `30` | check 状態を再 fetch する間隔 (秒) |
-| `timeout-seconds` | no | `3600` | 全 check 完了を待つ timeout (秒)、 デフォルト 60 分 |
+| `timeout-seconds` | no | `600` | 全 check 完了を待つ timeout (秒)、 デフォルト 10 分。 利用者の job レベル `timeout-minutes` も合わせて設定推奨 (例 `timeout-minutes: 11`) |
 | `on-timeout` | no | `failure` | timeout 到達時の挙動。 `failure` / `pending` |
-| `ignore-apps` | no | (空) | カンマ区切り。 これらの App slug の check_run を集約から除外 |
-| `ignore-checks` | no | (空) | カンマ区切り。 check_run name の glob (`*` / `?` 対応、 `/` 越え可) で除外 |
+| `ignore-apps` | no | (空) | これらの App slug の check_run を集約から除外。 **カンマ区切りまたは改行区切り** (yaml の `|` block scalar 対応) |
+| `ignore-checks` | no | (空) | check_run name の glob (`*` / `?` 対応、 `/` 越え可) で除外。 **カンマ区切りまたは改行区切り** |
 | `token` | no | `${{ github.token }}` | API token |
 
 ### outputs
@@ -259,7 +291,8 @@ permissions:
 
 - `src/aggregator.ts` — 通常モード / 救出モード分岐を削除し、 polling 用の単純な「全完了 + 緑/赤評価」 に
 - `src/status.ts` — `target_url` の組み立て対象を変える (pending 中は polling workflow run page に向ける)
-- `src/index.ts` — entry point の event 判定と polling loop を書き直す
+- `src/inputs.ts` — `parseList` を multiline 対応 (split 区切り文字を `,` だけから `[,\n]` に変更) + 新 input (`poll-interval-seconds` / `timeout-seconds` / `on-timeout`) の parse / 検証
+- `src/index.ts` — entry point の event 判定 (pending モード / polling モード) と polling loop を書き直す
 - `action.yml` — name / inputs / outputs を v2 に
 - `.github/workflows/test-self.yml` — `auto_merge_enabled` ベースに書き換え (新仕様で実 PR で dogfood する)
 
