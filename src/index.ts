@@ -232,34 +232,6 @@ const run = async (): Promise<void> => {
     }
   }
 
-  if (mode === 'pending') {
-    if (inputs.gateMode === 'private') {
-      await writeCheckRun(octokit, {
-        owner: ctx.repo.owner,
-        repo: ctx.repo.repo,
-        sha,
-        state: 'pending',
-        name: inputs.context,
-        output: buildPendingOutput(reason),
-        details_url: targetUrl
-      })
-    }
-    core.setOutput('state', 'pending')
-    core.setOutput('total-checks', '0')
-    core.setOutput('evaluated-checks', '0')
-    core.setOutput('completed-checks', '0')
-    core.setOutput('polled-iterations', '0')
-    await writeSummary({
-      state: 'pending',
-      mode: 'pending',
-      total: 0,
-      evaluated: 0,
-      completed: 0,
-      iterations: 0
-    })
-    return
-  }
-
   // mode === 'polling'
 
   // Pre-write a queued check_run BEFORE polling starts (main-gate only).

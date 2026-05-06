@@ -1,6 +1,7 @@
 // pull_request activity types that may bring a new HEAD SHA to the PR.
-// The gate re-evaluates the SHA on these. Triggers pending mode by default,
-// or polling mode when Auto Merge is already enabled.
+// The gate re-evaluates the SHA on these. Polls when merge intent is
+// already standing (auto-merge enabled or active Approve); otherwise
+// skips so the required check stays "Expected" and blocks merge.
 const HEAD_SHA_ACTIONS = ['opened', 'synchronize', 'reopened'] as const
 type HeadShaAction = (typeof HEAD_SHA_ACTIONS)[number]
 export const isHeadShaAction = (a: string): a is HeadShaAction =>
@@ -8,9 +9,8 @@ export const isHeadShaAction = (a: string): a is HeadShaAction =>
 
 // Mutually exclusive modes the action can run in for a given event.
 //   polling — poll the Checks API and write the aggregated verdict.
-//   pending — write a queued check_run and exit, waiting for merge intent.
-//   skip    — do nothing for unsupported activity types.
-export type ActionMode = 'polling' | 'pending' | 'skip'
+//   skip    — do nothing; required check stays "Expected" and blocks merge.
+export type ActionMode = 'polling' | 'skip'
 
 /**
  * Lowercase values GitHub uses for `pull_request_review.review.state`
@@ -178,8 +178,8 @@ export const determineMode = (
       }
     }
     return {
-      mode: 'pending',
-      reason: `new HEAD landed (action=${action}); waiting for merge intent (Enable auto-merge or an Approve review)`
+      mode: 'skip',
+      reason: `new HEAD landed (action=${action}); no merge intent (auto-merge off, no active Approve)`
     }
   }
   return {
