@@ -44,6 +44,7 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.0",
     "globals": "^15.14.0",
+    "msw": "^2.14.2",
     "prettier": "^3.4.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
