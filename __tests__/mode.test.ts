@@ -67,19 +67,19 @@ describe('determineMode', () => {
       expect(result.reason).toMatch(/active Approve review/)
     })
 
-    it('synchronize without auto-merge or approval → pending', () => {
+    it('synchronize without auto-merge or approval → skip', () => {
       const result = determineMode(
         input({ action: 'synchronize', isHeadShaEvent: true })
       )
-      expect(result.mode).toBe('pending')
-      expect(result.reason).toMatch(/waiting for merge intent/)
+      expect(result.mode).toBe('skip')
+      expect(result.reason).toMatch(/no merge intent/)
     })
 
-    it('opened without auto-merge or approval → pending', () => {
+    it('opened without auto-merge or approval → skip', () => {
       const result = determineMode(
         input({ action: 'opened', isHeadShaEvent: true })
       )
-      expect(result.mode).toBe('pending')
+      expect(result.mode).toBe('skip')
     })
 
     it('unsupported activity → skip', () => {

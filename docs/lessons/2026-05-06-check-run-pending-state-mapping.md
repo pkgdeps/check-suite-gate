@@ -184,8 +184,38 @@ polling中は latest = main-gate queued (非terminal = blocked)。 polling後は
 
 fork-gate の場合、 JOB自身が gate (= JOB起動時に check_run が in_progress として作られ、 終了時に conclusion 確定)。 同じ suite 内に同名の他 check_run が無いので race の窓がない。 fix は `inputs.gate === 'main'` 限定なので fork-gate には影響しない。
 
+## 5. v3 単一 job pattern で §4 race は構造的に消え、 polling 前 pre-write も撤去した
+
+§4 の queued pre-write は **v2 の 2-job mutex pattern (`main-gate` / `fork-gate`)** で skipped fork-gate の check_run が "latest" を保持する race を塞ぐための hotfix だった。 v3 では構成を 1 job に整理し直したので、 同名 check_run が複数 job から書かれる前提が成立せず、 race そのものが構造的に消える。 race protection が pre-write の唯一の構造的根拠だったため、 v3 では pre-write 自体を撤去した。
+
+詳細仕様は [docs/superpowers/specs/2026-05-06-v3-single-job-design.md](../superpowers/specs/2026-05-06-v3-single-job-design.md) を参照。
+
+### v3 で構造的に消えた点
+
+- **構成を 2 example に分離**: private (cost-optimized) / public (fork-aware)。 同名 check_run を複数 job が触りに行く構造を排除。 race の窓そのものが消滅。
+- **input rename を hard break で実施**: `gate: main | fork` → `gate-mode: 'private' | 'public'`。 alias は提供せず、 v2 の値が来たら startup で error。 v2 の race を抱えた構成に逆戻りする path を完全に閉じる。
+- **skip path で API write を発行しない**: merge意図がない event (`synchronize` 等) では action が check_run を書かず、 GitHub default の `Expected — Waiting for status to be reported` に任せる。 user 視点の merge block 挙動は変わらず、 API write が 1 回減る。
+
+### polling 前 pre-write は v3 で撤去
+
+v3 では `src/gate-private.ts` の polling path から **polling 開始前の `writeCheckRun({ state: 'pending' })`** を撤去した。 polling 完了後に terminal verdict を 1 回だけ POST する。
+
+撤去理由:
+
+- §4 の race protection は pre-write の唯一の構造的根拠だった。 v3 single-job pattern で race そのものが消えたので、 race 対策としての pre-write は不要になった。
+- 一時 v3 では「polling 中の UX 進行表示」 ( `Queued — automerge-gate` 行を見せる) を理由に pre-write を残していたが、 design 簡素化を優先して撤去。
+- trade-off: polling 中の数分間は head SHA に対する required-check context が無く、 PR Checks UI には GitHub default の `Expected — Waiting for status to be reported` だけが表示される。 maintainer から見ると「gate が動いているのか triggered されていないのか」 が区別しにくい。 これは workflow run の URL を見れば確認できるので、 design 簡素化の対価として許容する。
+
+結果として v3 polling は **per-run 1 POST** (verdict のみ) で動く。 §4 で書いた hotfix logic は code から消え、 history としてこの doc に残る。
+
+### 残った defensive guard
+
+post-polling write の前に「`pollResult.state === 'pending'` ならば `setFailed` して return する」 guard は残してある。 `pollUntilComplete` は `while(true)` で terminal state でしか return しないので runtime 上 unreachable だが、 `buildPollingOutput` の引数を `'success' | 'failure'` に narrow するための型 guard と、 将来 contract が変わったときに不整合な write を回避する保険を兼ねる。
+
 ## 関連
 
 - [docs/lessons/2026-05-05-check-suite-recursion-finding.md](./2026-05-05-check-suite-recursion-finding.md) — v1 設計の前提崩れ
+- [docs/superpowers/specs/2026-05-06-v3-single-job-design.md](../superpowers/specs/2026-05-06-v3-single-job-design.md) — v3 設計仕様 (race の構造的撤廃)
+- [docs/MIGRATION.md](../MIGRATION.md) — v2 → v3 移行ガイド
 - PR [#15](https://github.com/pkgdeps/automerge-gate/pull/15) — v2 移行 (commit status → check_run)
 - [src/check-run.ts](../../src/check-run.ts) — `stateToCheckRunFields` 実装

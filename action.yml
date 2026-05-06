@@ -1,11 +1,8 @@
 name: automerge-gate
 description: |
-  Polls check_run results for a PR and gates merge via the gate job's exit
-  code (success/failure). The job's check_run conclusion is what GitHub's
-  required-check evaluates, so the action works uniformly on same-repo and
-  fork PRs. Set `name: automerge-gate/all-passed` on the gate job to match
-  the required-check context. An aggregated check_run is also written as a
-  courtesy when the token has `checks: write`.
+  Polls check_run results for a PR and reports the aggregate as either an
+  action-written check_run (gate-mode: private) or the gate job's own
+  check_run conclusion (gate-mode: public). Single-job pattern; no race.
 author: azu
 
 branding:
@@ -13,8 +10,11 @@ branding:
   color: green
 
 inputs:
+  gate-mode:
+    description: 'Gate variant. "private" = cost-optimized for repos with no external fork PRs (action writes the aggregated check_run via the Checks API). "public" = simpler model for fork-accepting repos (the gate signal is the JOB exit code; the job name must match the required-check context).'
+    required: true
   context:
-    description: 'Aggregated check_run name to write. Must match the required check in your ruleset.'
+    description: 'Aggregated check_run name (gate-mode: private only). Must match the required check in your ruleset. Ignored when gate-mode: public — the job name is the signal.'
     required: false
     default: 'automerge-gate/all-passed'
   poll-interval-seconds:
@@ -29,9 +29,6 @@ inputs:
     description: 'check_run name patterns to exclude. Glob (* / ?) supported. Comma-separated or newline-separated.'
     required: false
     default: ''
-  gate:
-    description: 'Gate variant. "main" writes the aggregated check_run (used by the main-gate job for same-repo PRs, where the token has checks:write). "fork" skips the check_run write so the gate is the job''s own check_run conclusion (used by the fork-gate job for fork PRs with a read-only token). Required — use one variant per job in the 2-job pattern.'
-    required: true
   token:
     description: 'GitHub token used to read checks and (when permitted) write the aggregated check_run'
     required: false
@@ -39,7 +36,7 @@ inputs:
 
 outputs:
   state:
-    description: 'Final state: pending, success, or failure'
+    description: 'Final state: success, failure, or skipped'
   total-checks:
     description: 'Number of check_runs observed before filtering'
   evaluated-checks:
@@ -47,7 +44,7 @@ outputs:
   completed-checks:
     description: 'Number of completed check_runs after filtering'
   polled-iterations:
-    description: 'Number of polling iterations performed (0 in pending mode)'
+    description: 'Number of polling iterations performed'
 
 runs:
   using: 'node24'

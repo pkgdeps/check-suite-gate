@@ -4,18 +4,18 @@ export type RawInputs = {
   context: string
   ignoreApps: string
   ignoreChecks: string
-  gate: string
+  gateMode: string
   token: string
   pollIntervalSeconds: string
 }
 
-export type Gate = 'main' | 'fork'
+export type GateMode = 'private' | 'public'
 
 export type ParsedInputs = {
   context: string
   ignoreApps: string[]
   ignoreChecks: string[]
-  gate: Gate
+  gateMode: GateMode
   token: string
   pollIntervalSeconds: number
 }
@@ -30,9 +30,12 @@ const parsePositiveInt = (raw: string, name: string): number => {
   return n
 }
 
-const parseGate = (raw: string): Gate => {
-  if (raw === 'main' || raw === 'fork') return raw
-  throw new Error(`input \`gate\` must be "main" or "fork" (got: "${raw}")`)
+const parseGateMode = (raw: string): GateMode => {
+  if (raw === 'private' || raw === 'public') return raw
+  throw new Error(
+    `input \`gate-mode\` must be "private" or "public" (got: "${raw}"). ` +
+      `If migrating from v2: gate: main → gate-mode: private, gate: fork → gate-mode: public.`
+  )
 }
 
 export const parseInputs = (raw: RawInputs): ParsedInputs => {
@@ -43,7 +46,7 @@ export const parseInputs = (raw: RawInputs): ParsedInputs => {
     context: raw.context,
     ignoreApps: parseList(raw.ignoreApps),
     ignoreChecks: parseList(raw.ignoreChecks),
-    gate: parseGate(raw.gate),
+    gateMode: parseGateMode(raw.gateMode),
     token: raw.token,
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
