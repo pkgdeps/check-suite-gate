@@ -12,7 +12,11 @@ import {
   parseCurrentWorkflowPath
 } from './self-exclusion.js'
 import { pollUntilComplete } from './polling.js'
-import { buildTargetUrl, writeCommitStatus } from './status.js'
+import {
+  buildTargetUrl,
+  writeCommitStatus,
+  type WriteCommitStatusInput
+} from './status.js'
 
 const PENDING_DESCRIPTION = 'Awaiting Auto Merge enable'
 
@@ -25,7 +29,7 @@ const isHeadShaAction = (a: string): a is HeadShaAction =>
   (HEAD_SHA_ACTIONS as readonly string[]).includes(a)
 
 // Mutually exclusive modes the action can run in for a given pull_request event.
-//   polling — poll the Checks API and write the aggregated status when done.
+//   polling — poll the Checks API and (try to) write the aggregated status when done.
 //   pending — write a pending status with "Awaiting Auto Merge enable" and exit.
 //   skip    — do nothing for unsupported activity types.
 type ActionMode = 'polling' | 'pending' | 'skip'
@@ -74,14 +78,39 @@ const writeSummary = async (input: SummaryInput): Promise<void> => {
     .write()
 }
 
+// Status write is a courtesy in v2: gating is done via the gate job's exit
+// code (the check_run conclusion). When the token is read-only (the default
+// on fork PRs), the API returns 403 — log a warning and continue. The
+// polling verdict still drives the job's exit code.
+const tryWriteCommitStatus = async (
+  octokit: OctokitLike,
+  input: WriteCommitStatusInput
+): Promise<void> => {
+  try {
+    await writeCommitStatus(octokit, input)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const isPermissionError =
+      /\b403\b/.test(message) ||
+      /Resource not accessible by integration/i.test(message)
+    if (isPermissionError) {
+      core.warning(
+        'Status write skipped (token lacks statuses:write — common on fork PRs). Falling back to job exit-code gating.'
+      )
+      return
+    }
+    throw err
+  }
+}
+
 const run = async (): Promise<void> => {
   const inputs = parseInputs({
     context: core.getInput('context'),
     ignoreApps: core.getInput('ignore-apps'),
     ignoreChecks: core.getInput('ignore-checks'),
+    mode: core.getInput('mode'),
     token: core.getInput('token'),
-    pollIntervalSeconds: core.getInput('poll-interval-seconds'),
-    forkPolicy: core.getInput('fork-policy')
+    pollIntervalSeconds: core.getInput('poll-interval-seconds')
   })
 
   const ctx = github.context
@@ -124,68 +153,6 @@ const run = async (): Promise<void> => {
 
   const octokit = github.getOctokit(inputs.token) as unknown as OctokitLike
 
-  // Detect fork PR: head_repo and base_repo differ.
-  // pr.head.repo can be null if the fork repo was deleted; treat as fork.
-  // Compare by id (immutable) rather than full_name (renames possible).
-  const baseRepoId = (pr as unknown as { base: { repo: { id: number } } }).base
-    .repo.id
-  const headRepo = (pr as unknown as { head: { repo: { id: number } | null } })
-    .head.repo
-  const isFork = headRepo == null || headRepo.id !== baseRepoId
-
-  if (isFork) {
-    core.info(
-      `Fork PR detected (head_repo.id=${headRepo?.id ?? 'null'} ≠ base_repo.id=${baseRepoId}); fork-policy=${inputs.forkPolicy}`
-    )
-    core.endGroup()
-    if (inputs.forkPolicy === 'skip') {
-      core.info(
-        'Fork PR detected; skipping (no status written) per fork-policy=skip.'
-      )
-      core.setOutput('state', 'skipped')
-      core.setOutput('total-checks', '0')
-      core.setOutput('evaluated-checks', '0')
-      core.setOutput('completed-checks', '0')
-      core.setOutput('polled-iterations', '0')
-      await writeSummary({
-        state: 'skipped',
-        mode: 'fork-skip',
-        total: 0,
-        evaluated: 0,
-        completed: 0,
-        iterations: 0
-      })
-      return
-    }
-    // forkPolicy === 'success'
-    core.info(
-      'Fork PR detected; writing success status per fork-policy=success.'
-    )
-    await writeCommitStatus(octokit, {
-      owner: ctx.repo.owner,
-      repo: ctx.repo.repo,
-      sha,
-      state: 'success',
-      context: inputs.context,
-      description: 'Fork PR: gating delegated to other required checks',
-      target_url: targetUrl
-    })
-    core.setOutput('state', 'success')
-    core.setOutput('total-checks', '0')
-    core.setOutput('evaluated-checks', '0')
-    core.setOutput('completed-checks', '0')
-    core.setOutput('polled-iterations', '0')
-    await writeSummary({
-      state: 'success',
-      mode: 'fork-success',
-      total: 0,
-      evaluated: 0,
-      completed: 0,
-      iterations: 0
-    })
-    return
-  }
-
   // Decide which mode to run.
   // Polling mode: maintainer pressed "Enable Auto Merge" (auto_merge_enabled
   // activity), OR Auto Merge is already enabled and a new SHA landed on
@@ -215,15 +182,17 @@ const run = async (): Promise<void> => {
   }
 
   if (mode === 'pending') {
-    await writeCommitStatus(octokit, {
-      owner: ctx.repo.owner,
-      repo: ctx.repo.repo,
-      sha,
-      state: 'pending',
-      context: inputs.context,
-      description: PENDING_DESCRIPTION,
-      target_url: targetUrl
-    })
+    if (inputs.mode === 'main-gate') {
+      await tryWriteCommitStatus(octokit, {
+        owner: ctx.repo.owner,
+        repo: ctx.repo.repo,
+        sha,
+        state: 'pending',
+        context: inputs.context,
+        description: PENDING_DESCRIPTION,
+        target_url: targetUrl
+      })
+    }
     core.setOutput('state', 'pending')
     core.setOutput('total-checks', '0')
     core.setOutput('evaluated-checks', '0')
@@ -309,15 +278,17 @@ const run = async (): Promise<void> => {
 
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`
 
-  await writeCommitStatus(octokit, {
-    owner: ctx.repo.owner,
-    repo: ctx.repo.repo,
-    sha,
-    state: pollResult.state,
-    context: inputs.context,
-    description: description.slice(0, 140),
-    target_url: targetUrl
-  })
+  if (inputs.mode === 'main-gate') {
+    await tryWriteCommitStatus(octokit, {
+      owner: ctx.repo.owner,
+      repo: ctx.repo.repo,
+      sha,
+      state: pollResult.state,
+      context: inputs.context,
+      description: description.slice(0, 140),
+      target_url: targetUrl
+    })
+  }
 
   core.setOutput('state', pollResult.state)
   core.setOutput('total-checks', String(lastTotal))
@@ -333,6 +304,17 @@ const run = async (): Promise<void> => {
     completed: lastCompleted,
     iterations: pollResult.iterations
   })
+
+  // Gating: the gate job's check_run conclusion is what GitHub's required
+  // check evaluates (when the workflow's job is named to match the
+  // required check context). On aggregated failure, fail the job so the
+  // check_run becomes "failure"; on success, return normally so the
+  // check_run becomes "success".
+  if (pollResult.state === 'failure') {
+    core.setFailed(
+      `automerge-gate: aggregated state is failure (${lastEvaluated} checks evaluated)`
+    )
+  }
 }
 
 run().catch((err: unknown) => {

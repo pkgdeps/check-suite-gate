@@ -5,9 +5,9 @@ const raw = (override: Partial<RawInputs> = {}): RawInputs => ({
   context: 'automerge-gate/all-passed',
   ignoreApps: '',
   ignoreChecks: '',
+  mode: 'main-gate',
   token: 'tok',
   pollIntervalSeconds: '30',
-  forkPolicy: 'skip',
   ...override
 })
 
@@ -50,17 +50,13 @@ describe('parseInputs', () => {
     )
   })
 
-  it('accepts fork-policy = "skip" or "success"', () => {
-    expect(parseInputs(raw({ forkPolicy: 'skip' })).forkPolicy).toBe('skip')
-    expect(parseInputs(raw({ forkPolicy: 'success' })).forkPolicy).toBe(
-      'success'
-    )
+  it("accepts mode = 'main-gate' or 'fork-gate'", () => {
+    expect(parseInputs(raw({ mode: 'main-gate' })).mode).toBe('main-gate')
+    expect(parseInputs(raw({ mode: 'fork-gate' })).mode).toBe('fork-gate')
   })
 
-  it('throws on invalid fork-policy', () => {
-    expect(() => parseInputs(raw({ forkPolicy: 'maybe' }))).toThrow(
-      /fork-policy/
-    )
-    expect(() => parseInputs(raw({ forkPolicy: '' }))).toThrow(/fork-policy/)
+  it('throws on invalid mode', () => {
+    expect(() => parseInputs(raw({ mode: 'maybe' }))).toThrow(/mode/)
+    expect(() => parseInputs(raw({ mode: '' }))).toThrow(/mode/)
   })
 })

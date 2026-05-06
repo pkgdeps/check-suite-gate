@@ -1,8 +1,11 @@
 name: automerge-gate
 description: |
-  Aggregates check_run results into a single commit status, triggered by
-  pull_request.auto_merge_enabled. Lets GitHub's native auto-merge fire as
-  soon as the aggregated status turns green.
+  Polls check_run results for a PR and gates merge via the gate job's exit
+  code (success/failure). The job's check_run conclusion is what GitHub's
+  required-check evaluates, so the action works uniformly on same-repo and
+  fork PRs. Set `name: automerge-gate/all-passed` on the gate job to match
+  the required-check context. An aggregated commit status is also written
+  as a courtesy when the token has write permission.
 author: azu
 
 branding:
@@ -26,18 +29,17 @@ inputs:
     description: 'check_run name patterns to exclude. Glob (* / ?) supported. Comma-separated or newline-separated.'
     required: false
     default: ''
+  mode:
+    description: 'Gating mode. "main-gate" writes the aggregated commit status (same-repo PRs). "fork-gate" skips status writes and lets the job''s check_run conclusion be the gate (fork PRs whose token is read-only). Required — use one mode per job in the 2-job pattern.'
+    required: true
   token:
-    description: 'GitHub token used to read checks and write commit status'
+    description: 'GitHub token used to read checks and (when permitted) write commit status'
     required: false
     default: ${{ github.token }}
-  fork-policy:
-    description: 'How to handle fork PRs. "skip" (default): write no status; required check remains missing/pending; maintainer must handle the PR manually. "success": write a success status, delegating gating to other required checks (e.g. ci.yml).'
-    required: false
-    default: 'skip'
 
 outputs:
   state:
-    description: 'Final commit status state: pending, success, failure, or skipped (fork PR with fork-policy=skip)'
+    description: 'Final state: pending, success, or failure'
   total-checks:
     description: 'Number of check_runs observed before filtering'
   evaluated-checks:
