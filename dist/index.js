@@ -24232,15 +24232,20 @@ var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = 
 
 // src/index.ts
 var ZERO_SHA = "0000000000000000000000000000000000000000";
-var buildPendingOutput = () => ({
-  title: "Waiting for Enable auto-merge",
+var buildPendingOutput = (reason) => ({
+  title: "Waiting for Approve or Enable auto-merge",
   summary: [
-    "This required check is waiting for the maintainer to click **Enable auto-merge** on this PR.",
+    "This required check is waiting for any of the following merge-intent signals:",
     "",
-    "Once enabled, the gate polls every other check on the PR and turns green or red based on the aggregated result. The maintainer doesn't need to wait \u2014 auto-merge will trigger as soon as the gate turns green."
+    "- A reviewer submits an **Approve** review, or",
+    "- A maintainer clicks **Enable auto-merge**",
+    "",
+    "Once either lands, the gate polls every other check on the PR and turns green or red based on the aggregated result.",
+    "",
+    `**Trigger:** ${reason}`
   ].join("\n")
 });
-var buildPollingOutput = (state, stats) => {
+var buildPollingOutput = (state, stats, reason) => {
   const title = state === "success" ? "All checks passed" : "At least one check failed";
   const headline = state === "success" ? `All ${stats.evaluated} evaluated checks passed.` : `${stats.evaluated} evaluated checks include at least one failure.`;
   const summary2 = [
@@ -24251,7 +24256,9 @@ var buildPollingOutput = (state, stats) => {
     `| Total (pre-filter) | ${stats.total} |`,
     `| Evaluated (post-filter) | ${stats.evaluated} |`,
     `| Completed | ${stats.completed} |`,
-    `| Polling iterations | ${stats.iterations} |`
+    `| Polling iterations | ${stats.iterations} |`,
+    "",
+    `**Trigger:** ${reason}`
   ].join("\n");
   return { title, summary: summary2 };
 };
@@ -24359,7 +24366,7 @@ var run = async () => {
         sha,
         state: "pending",
         name: inputs.context,
-        output: buildPendingOutput(),
+        output: buildPendingOutput(reason),
         details_url: targetUrl
       });
     }
@@ -24436,12 +24443,16 @@ var run = async () => {
   );
   core.endGroup();
   if (inputs.gate === "main") {
-    const pollingOutput = pollResult.state === "pending" ? buildPendingOutput() : buildPollingOutput(pollResult.state, {
-      total: lastTotal,
-      evaluated: lastEvaluated,
-      completed: lastCompleted,
-      iterations: pollResult.iterations
-    });
+    const pollingOutput = pollResult.state === "pending" ? buildPendingOutput(reason) : buildPollingOutput(
+      pollResult.state,
+      {
+        total: lastTotal,
+        evaluated: lastEvaluated,
+        completed: lastCompleted,
+        iterations: pollResult.iterations
+      },
+      reason
+    );
     await writeCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
