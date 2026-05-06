@@ -1,8 +1,16 @@
 # automerge-gate
 
-A GitHub Action that aggregates all check_run results on the same commit into a single commit status, started by the maintainer pressing **"Enable Auto Merge"** on a pull request. Once aggregated to green, GitHub's native auto-merge fires and merges the PR.
+A single required status check that gates **Enable Auto Merge** on every CI run that lands on a PR.
 
-This is the successor to [`pkgdeps/check-suite-gate`](https://github.com/pkgdeps/check-suite-gate) (v1, archived). The v1 design used `check_suite.completed` as the trigger but was blocked by GitHub's recursion guard for that event in repos that only run GitHub Actions. v2 switches to `pull_request.auto_merge_enabled`, which has no recursion guard, and adds a polling loop bounded by the workflow job's `timeout-minutes`.
+## Why
+
+GitHub's branch protection / rulesets ask you to list each required status check by name. That list is fragile:
+
+- Renovate / Dependabot bring in checks from external GitHub Apps that come and go.
+- Monorepos use path filters, so a workflow may be skipped on some PRs and present on others.
+- Adding a new workflow file means rewriting the ruleset.
+
+automerge-gate replaces that list with **one aggregated commit status**. You register only that single status as a required check. When a maintainer clicks Enable Auto Merge, the action waits for every check on the PR — across workflow files, across GitHub Apps — then flips its status to green once they all pass. GitHub's native auto-merge takes the PR from there.
 
 ## How it works
 
@@ -60,8 +68,11 @@ Note: GitHub rulesets only support AND across required checks (no OR / condition
 
 ## Usage
 
+### 1. Add the workflow
+
+Create `.github/workflows/automerge-gate.yaml` in your repository and merge it to your default branch (`pull_request` triggered workflows only fire when the workflow file already exists on the default branch):
+
 ```yaml
-# .github/workflows/automerge-gate.yaml
 name: automerge-gate
 
 on:
@@ -89,17 +100,28 @@ jobs:
     steps:
       - uses: pkgdeps/automerge-gate@v1.0.0
         with:
-          context: 'automerge-gate/all-passed'
-          ignore-apps: |
-            dependabot
-            renovate
-          ignore-checks: |
-            optional-*
-            docs-only
-            ci / lint
+          context: 'automerge-gate/all-passed'   # must match the required check in your ruleset
 ```
 
-Then register `automerge-gate/all-passed` as a required status check in your ruleset / branch protection. The PR will be merge-blocked until a maintainer presses "Enable Auto Merge" and the gate writes a success status.
+`ignore-apps` / `ignore-checks` / `fork-policy` などの optional inputs は [Inputs](#inputs) を参照してください。
+
+### 2. Register the required check + allow auto-merge
+
+In repository **Settings**:
+
+- **Rules → Rulesets** (or **Branches → Branch protection**): add a rule that requires the status check `automerge-gate/all-passed`. Type the context name directly — rulesets accept it without needing it to be seeded first.
+- **General → Pull Requests**: tick **Allow auto-merge**. Without this the *Enable Auto Merge* button doesn't show up on PRs.
+
+This single required check is now the only thing standing between a PR and merge. Any check that lands on the PR — Renovate, Codecov, your own workflows — gets aggregated into it.
+
+### 3. Press Enable Auto Merge
+
+On any PR you want to ship:
+
+1. Get the PR ready (review, fix, etc.).
+2. Click **Enable Auto Merge**.
+3. The gate flips into polling mode, waits for every check to complete, then writes `success` (or `failure`).
+4. On `success`, GitHub's native auto-merge fires immediately and merges the PR. On `failure`, auto-merge is blocked; fix and push again — as long as Auto Merge stays enabled, the gate re-evaluates the new SHA on every push.
 
 > [!IMPORTANT]
 > The action does **not** expose a timeout input. The job-level `timeout-minutes` is the only bound on how long the polling loop runs, and you should treat it as part of the action's configuration. There are no two timeouts to keep in sync — just one. If your CI runs longer than 10 minutes, raise `timeout-minutes` accordingly.
@@ -116,6 +138,49 @@ Then register `automerge-gate/all-passed` as a required status check in your rul
 | `fork-policy` | no | `skip` | How to handle fork PRs. `skip` writes no status (maintainer handles manually). `success` writes a success status, delegating gating to other required checks (e.g. ci.yml) |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
+
+### Examples
+
+**Exclude specific GitHub Apps from aggregation:**
+
+```yaml
+      - uses: pkgdeps/automerge-gate@v1.0.0
+        with:
+          ignore-apps: |
+            dependabot
+            renovate
+```
+
+**Exclude check_runs by glob (matches across path separators like `ci / lint`):**
+
+```yaml
+      - uses: pkgdeps/automerge-gate@v1.0.0
+        with:
+          ignore-checks: |
+            optional-*
+            docs-only
+            ci / lint
+```
+
+`ignore-apps` / `ignore-checks` accept either comma-separated values (`a,b,c`) or one entry per line via the YAML `|` block scalar.
+
+**Tune polling interval for fast CI:**
+
+```yaml
+      - uses: pkgdeps/automerge-gate@v1.0.0
+        with:
+          poll-interval-seconds: '10'
+```
+
+**Allow fork PRs through (delegating gating to other required checks):**
+
+```yaml
+      - uses: pkgdeps/automerge-gate@v1.0.0
+        with:
+          fork-policy: success
+```
+
+Pair this with another required check (e.g. ci.yml registered separately in the ruleset) so fork PRs still get gated by something.
 
 ## Outputs
 
@@ -150,6 +215,35 @@ The previous version of this Action under the name `check-suite-gate` is preserv
 ## Versioning
 
 Releases are published as **immutable semver tags** (`v1.0.0`, `v1.1.0`, ...). There is intentionally no moving major tag (`v1`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
+
+## Releasing (maintainers)
+
+All releases are cut from the GitHub web UI. There is no release script and no `npm publish` step.
+
+### Pre-release checklist
+
+1. `main` is green on CI.
+2. `dist/index.js` is in sync with `src/`. The pre-commit hook keeps it in sync; if in doubt run:
+   ```bash
+   npm run build
+   git diff --exit-code dist/   # should be empty
+   ```
+
+### Cutting a release
+
+1. Go to **Releases → Draft a new release**.
+2. **Choose a tag**: type the new version (e.g. `v1.0.0`) and select *Create new tag on publish*.
+3. **Target**: `main`.
+4. **Release title**: same as the tag (e.g. `v1.0.0`).
+5. Click **Generate release notes** to autopopulate from PRs / commits since the last tag.
+6. **Set as the latest release**: ✅
+7. **Mark as an immutable release** (Public Preview): ✅ if the option is shown — locks the tag and asset checksums so they cannot be silently rewritten later.
+8. **Publish to GitHub Marketplace**: ✅ on the **first** release only. Subsequent releases auto-update the existing Marketplace listing.
+9. Click **Publish release**.
+
+### After publishing
+
+Users pin a fixed version: `uses: pkgdeps/automerge-gate@v1.0.0`. Renovate / Dependabot will open update PRs as new versions ship.
 
 ## License
 
