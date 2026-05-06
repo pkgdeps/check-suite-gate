@@ -15,7 +15,7 @@ GitHub の Checks API は **GitHub Actions サービス自体だけが使える�
 
 第三者 action が「実は使いたい」 と感じる場面でも、 上記は API レベルで 422。 実機で 1 push 試すのが結論を出す最短路。
 
-## 1. pending state ("Enable auto-merge 待ち")
+## 1. pending state ("wating for Enable auto-merge")
 
 automerge-gate の pending state は **`status: queued` (no conclusion)** で表現する。
 
@@ -135,4 +135,3 @@ GraphQL の `statusCheckRollup.state` は SUCCESS と返してくるが、 **`me
 - [docs/lessons/2026-05-05-check-suite-recursion-finding.md](./2026-05-05-check-suite-recursion-finding.md) — v1 設計の前提崩れ
 - PR [#15](https://github.com/pkgdeps/automerge-gate/pull/15) — v2 移行 (commit status → check_run)
 - [src/check-run.ts](../../src/check-run.ts) — `stateToCheckRunFields` 実装
-
