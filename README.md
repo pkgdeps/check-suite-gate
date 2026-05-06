@@ -44,15 +44,17 @@ sequenceDiagram
     Gate->>Gate: detect fork PR<br/>(head_repo.id ≠ base_repo.id)
 
     alt fork-policy = skip (default)
-        Note over PR: No status written.<br/>Required check stays missing.<br/>Maintainer reviews and merges manually.
+        Note over PR: No status written.<br/>Required check stays missing.<br/>Only an admin (with ruleset bypass)<br/>can merge.
     else fork-policy = success
         Gate->>PR: Aggregated status: success<br/>(gating delegated to other required checks)
         Note over PR: Other required checks (e.g. ci.yml)<br/>still gate the merge.
     end
 ```
 
-- Use `skip` (default) if you handle fork PRs through manual review (the typical OSS workflow).
-- Use `success` only when you have other required checks (e.g. ci.yml) registered separately, so this action can step out of the way for fork PRs while gating still happens.
+- Use `skip` (default) when fork PRs are rare and you're comfortable having an admin bypass the ruleset to merge them. The required check stays missing, so non-admins can't merge.
+- Use `success` for OSS-style repositories where fork PRs are common. Pair it with another required check (e.g. ci.yml) that gates the fork's commits, so this action stays out of the way for forks while real gating still happens.
+
+Note: GitHub rulesets only support AND across required checks (no OR / conditional logic), so this action is the place where "all of these checks across workflows must pass" is expressed as a single status. The fork-policy input is the corresponding escape hatch for the case where the action itself can't run.
 
 ## Usage
 
