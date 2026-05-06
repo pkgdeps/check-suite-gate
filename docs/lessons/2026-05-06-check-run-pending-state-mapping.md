@@ -130,6 +130,60 @@ GraphQL の `statusCheckRollup.state` は SUCCESS と返してくるが、 **`me
 - 「同名 check_run が複数できると重複表示でうるさい」 という UX 心配が先行して find-or-create にしたが、 そもそも GitHub の required check 評価が **suite 単位で見る** という仕様を知らなかった
 - 早く気付くサインはあった: PR の `mergeStateStatus: BLOCKED` と `statusCheckRollup.state: SUCCESS` が **矛盾** していた時点で「GitHub 内部のキャッシュ」と決めつけず、 suite-by-suite で見るべきだった
 
+## 4. polling 開始前に queued check_run を pre-write しないと race する
+
+`auto_merge_enabled` event 起点の workflow run で、 同じ suite に **別 job の skipped check_run が先に landing する** と「polling中の窓」で required check が誤って満たされ、 auto-merge が発火してしまう。
+
+### 観測した事象 (issue #17 / PR #26 of automerge-gate-example)
+
+README の 2-job mutex pattern (`main-gate` / `fork-gate`) で **same-repo PR**:
+
+| 時刻 (UTC) | event |
+|---|---|
+| 09:51:57 | PR open |
+| 09:51:58 | fork-gate skipped → check_run `automerge-gate/all-passed` (skipped) suite 1 |
+| 09:52:31 | **Auto Merge enabled** |
+| 09:52:34 | suite 2 で fork-gate skipped → 新 check_run `automerge-gate/all-passed` (skipped) |
+| 09:52:36 | **PR merged** ← skipped が "latest" 扱いで required check 通過 |
+| 09:52:38 | main-gate (action) polling 開始 ← merge後! |
+
+failing check が存在するにもかかわらず、 polling 完了前に merge された。
+
+### 何を見落としたか
+
+- `for duplicate-name evaluation GitHub picks the latest, so the verdict is correct.` という想定があった
+- だが「latest」 になるためには **action の writeCheckRun が landing する必要がある**
+- polling は数秒かかる ⇒ その間 fork-gate skipped (= passing) が latest を保持 ⇒ 誤って merge
+
+### 修正
+
+`mode === 'polling'` ブロックで、 **`pollUntilComplete` を呼ぶ前に** `state: 'pending'` で writeCheckRun する:
+
+```typescript
+if (inputs.gate === 'main') {
+  await writeCheckRun(octokit, {
+    ...
+    state: 'pending',
+    output: buildPendingOutput(reason),
+    ...
+  })
+}
+
+core.startGroup('Polling')
+// poll...
+```
+
+これで suite 内の id 順序は:
+1. fork-gate skipped (suite 起動時に landing、 一番早い)
+2. main-gate queued (action の polling 開始前 POST、 中間)
+3. main-gate completed (polling 完了後 POST、 最大 = latest)
+
+polling中は latest = main-gate queued (非terminal = blocked)。 polling後は latest = main-gate verdict。 race解消。
+
+### fork PR は元々問題なし
+
+fork-gate の場合、 JOB自身が gate (= JOB起動時に check_run が in_progress として作られ、 終了時に conclusion 確定)。 同じ suite 内に同名の他 check_run が無いので race の窓がない。 fix は `inputs.gate === 'main'` 限定なので fork-gate には影響しない。
+
 ## 関連
 
 - [docs/lessons/2026-05-05-check-suite-recursion-finding.md](./2026-05-05-check-suite-recursion-finding.md) — v1 設計の前提崩れ

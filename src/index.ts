@@ -262,6 +262,34 @@ const run = async (): Promise<void> => {
 
   // mode === 'polling'
 
+  // Pre-write a queued check_run BEFORE polling starts (main-gate only).
+  // Without this, on a same-repo PR with the 2-job mutex pattern, the
+  // skipped fork-gate job's auto-created check_run (named to match the
+  // required-check context) lands in the auto_merge_enabled run's suite
+  // *immediately* and becomes the "latest" entry for that name. GitHub
+  // treats `conclusion: skipped` as passing, so the required check is
+  // satisfied prematurely and auto-merge fires before this run's
+  // polling has even started — even if a real check is failing.
+  //
+  // Writing a queued check_run here ensures the action's check_run is
+  // the latest (largest id) entry in the suite at all times during
+  // polling: skipped → queued → completed/success-or-failure. The
+  // queued state is non-terminal, so GitHub blocks merge until the
+  // post-polling write replaces it with the actual verdict.
+  //
+  // See https://github.com/pkgdeps/automerge-gate/issues/17.
+  if (inputs.gate === 'main') {
+    await writeCheckRun(octokit, {
+      owner: ctx.repo.owner,
+      repo: ctx.repo.repo,
+      sha,
+      state: 'pending',
+      name: inputs.context,
+      output: buildPendingOutput(reason),
+      details_url: targetUrl
+    })
+  }
+
   let lastTotal = 0
   let lastEvaluated = 0
   let lastCompleted = 0
