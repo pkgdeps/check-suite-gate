@@ -24456,6 +24456,17 @@ var run = async () => {
     });
     return;
   }
+  if (inputs.gate === "main") {
+    await writeCheckRun(octokit, {
+      owner: ctx.repo.owner,
+      repo: ctx.repo.repo,
+      sha,
+      state: "pending",
+      name: inputs.context,
+      output: buildPendingOutput(reason),
+      details_url: targetUrl
+    });
+  }
   let lastTotal = 0;
   let lastEvaluated = 0;
   let lastCompleted = 0;
