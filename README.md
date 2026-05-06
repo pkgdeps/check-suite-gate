@@ -44,9 +44,18 @@ As a courtesy, the `gate` job (commit-status mode) writes an aggregated commit s
 
 ### Fork PRs
 
-GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate cannot run there. The `fork-gate` job sidesteps this by setting `name: automerge-gate/all-passed` on the job — GitHub names the check_run after the job, so the required check is satisfied directly by the fork-gate job's conclusion (no token write needed). The action runs in `mode: fork-gate` so it never attempts a status write.
+GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate cannot run there. The recommended workflow uses a 2-job pattern with an `if:` mutex on `head.repo.id == base.repo.id`, so exactly one job runs per PR:
 
-The two jobs use a mutually exclusive `if:` condition on `head.repo.id == base.repo.id`, so exactly one of them runs per PR. Skipped jobs (the inactive branch of the mutex) do not block the required check.
+```mermaid
+flowchart TD
+    PR[PR opened / synchronize / reopened / auto_merge_enabled] --> Q{head.repo.id == base.repo.id?}
+    Q -->|same-repo PR| Gate[gate job<br/>mode: commit-status<br/>writes the aggregated commit status]
+    Q -->|fork PR| ForkGate[fork-gate job<br/>name: automerge-gate/all-passed<br/>mode: fork-gate, no status write]
+    Gate --> Done[automerge-gate/all-passed satisfied<br/>by commit status]
+    ForkGate --> Done2[automerge-gate/all-passed satisfied<br/>by job's check_run conclusion]
+```
+
+The `fork-gate` job sets `name: automerge-gate/all-passed` so GitHub names its check_run after the job. The required check is satisfied directly by the fork-gate job's conclusion — no token write needed. The action runs in `mode: fork-gate` and never attempts a status write. Skipped jobs (the inactive branch of the mutex) do not block the required check.
 
 Note: GitHub rulesets only support AND across required checks (no OR / conditional logic), so this action is the place where "all of these checks across workflows must pass" is expressed as a single check.
 
@@ -63,12 +72,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, auto_merge_enabled]
 
-permissions:
-  statuses: write
-  checks: read
-  pull-requests: read
-  actions: read
-
 concurrency:
   group: automerge-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -83,6 +86,11 @@ jobs:
     # no internal timeout input — the polling loop runs until all checks
     # complete or the runner is killed by this value.
     timeout-minutes: 10
+    permissions:
+      statuses: write     # write the aggregated commit status
+      checks: read        # listSuitesForRef / listForSuite
+      pull-requests: read
+      actions: read       # resolve own workflow path for self-exclusion
     steps:
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
@@ -93,11 +101,15 @@ jobs:
     # impossible. Instead, set `name:` to the required-check context — the
     # job's check_run takes that name and its conclusion is what the required
     # check evaluates. The action runs in fork-gate mode and never attempts
-    # a status write.
+    # a status write — `statuses: write` is intentionally NOT requested here.
     if: github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
     name: automerge-gate/all-passed
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      checks: read        # listSuitesForRef / listForSuite
+      pull-requests: read
+      actions: read       # resolve own workflow path for self-exclusion
     steps:
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
@@ -142,7 +154,7 @@ On any PR you want to ship:
 | `poll-interval-seconds` | no | `30` | How often to re-fetch check status |
 | `ignore-apps` | no | (empty) | GitHub App slugs to exclude. Comma-separated **or newline-separated** |
 | `ignore-checks` | no | (empty) | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated** |
-| `mode` | no | `commit-status` | `commit-status` / `fork`. `commit-status` writes the aggregated commit status. `fork` skips the status write entirely so the gate is the job's check_run conclusion (used by the fork-gate job whose `name:` matches the required check). |
+| `mode` | no | `commit-status` | `commit-status` / `fork-gate`. `commit-status` writes the aggregated commit status. `fork-gate` skips the status write entirely so the gate is the job's check_run conclusion (used by the fork-gate job whose `name:` matches the required check). |
 | `token` | no | `${{ github.token }}` | GitHub token used to read checks and (when permitted) write commit status |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
