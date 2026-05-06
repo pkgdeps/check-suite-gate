@@ -204,7 +204,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 
 - **Merge queue (`merge_group`)** is not supported.
 - **Dead runner / job timeout**: if the runner is killed mid-polling (job hits `timeout-minutes`, dies physically, etc.), the gate job's check_run becomes `failure` (or `cancelled`), so the required check stays red and merge stays blocked. The maintainer can disable then re-enable Auto Merge to re-trigger.
-- **Legacy commit status events**: third-party CI that writes via the legacy commit status API may not appear in `check_suite` and would not be aggregated. The action does not handle the `status` event.
+- **CIs that only write legacy commit statuses**: GitHub has two ways for CIs to report results — the modern check_run / check_suite API (used by GitHub Actions, Cloudflare Pages, Codecov, etc.) and the legacy commit-status API (used by some older or self-hosted CIs like Atlantis or some Jenkins setups). The action polls the check_run / check_suite side, so a CI that only writes legacy commit statuses isn't aggregated. If you depend on such a CI, register it as a separate required check in your ruleset alongside `automerge-gate/all-passed`.
 - **Stale `pending` on past commits**: when the courtesy commit-status write succeeds, each push to a PR appends a `pending` status to the new HEAD SHA. GitHub's commit status API is append-only — past SHAs keep that `pending` in their history forever (no API to delete or overwrite). This has no effect on the PR's HEAD evaluation or on auto-merge (both look only at the latest SHA), but the per-commit hover in the PR's Commits tab will show `pending` for older SHAs.
 
 ## Versioning
