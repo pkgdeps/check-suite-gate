@@ -14,11 +14,55 @@ import {
 import { pollUntilComplete } from './polling.js'
 import {
   buildTargetUrl,
-  writeCommitStatus,
-  type WriteCommitStatusInput
-} from './status.js'
+  writeCheckRun,
+  markCheckRunStale,
+  type CheckRunOutput
+} from './check-run.js'
 
-const PENDING_DESCRIPTION = 'Awaiting Auto Merge enable'
+const ZERO_SHA = '0000000000000000000000000000000000000000'
+
+// Output shown when the gate is waiting for the maintainer to click
+// "Enable auto-merge". The title is what GitHub renders inline in the PR
+// merge box (e.g. "Queued — Waiting for Enable auto-merge"), so it must
+// be self-explanatory at a glance.
+const buildPendingOutput = (): CheckRunOutput => ({
+  title: 'Waiting for Enable auto-merge',
+  summary: [
+    'This required check is waiting for the maintainer to click **Enable auto-merge** on this PR.',
+    '',
+    "Once enabled, the gate polls every other check on the PR and turns green or red based on the aggregated result. The maintainer doesn't need to wait — auto-merge will trigger as soon as the gate turns green."
+  ].join('\n')
+})
+
+type PollingStats = {
+  total: number
+  evaluated: number
+  completed: number
+  iterations: number
+}
+
+const buildPollingOutput = (
+  state: 'success' | 'failure',
+  stats: PollingStats
+): CheckRunOutput => {
+  const title =
+    state === 'success' ? 'All checks passed' : 'At least one check failed'
+  const headline =
+    state === 'success'
+      ? `All ${stats.evaluated} evaluated checks passed.`
+      : `${stats.evaluated} evaluated checks include at least one failure.`
+  const summary = [
+    headline,
+    '',
+    '| Field | Value |',
+    '|---|---|',
+    `| Total (pre-filter) | ${stats.total} |`,
+    `| Evaluated (post-filter) | ${stats.evaluated} |`,
+    `| Completed | ${stats.completed} |`,
+    `| Polling iterations | ${stats.iterations} |`
+  ].join('\n')
+  return { title, summary }
+}
 
 // pull_request activity types that may bring a new HEAD SHA to the PR.
 // The gate re-evaluates the SHA on these. Triggers pending mode by default,
@@ -76,31 +120,6 @@ const writeSummary = async (input: SummaryInput): Promise<void> => {
       ['polling iterations', String(input.iterations)]
     ])
     .write()
-}
-
-// Status write is a courtesy in v2: gating is done via the gate job's exit
-// code (the check_run conclusion). When the token is read-only (the default
-// on fork PRs), the API returns 403 — log a warning and continue. The
-// polling verdict still drives the job's exit code.
-const tryWriteCommitStatus = async (
-  octokit: OctokitLike,
-  input: WriteCommitStatusInput
-): Promise<void> => {
-  try {
-    await writeCommitStatus(octokit, input)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    const isPermissionError =
-      /\b403\b/.test(message) ||
-      /Resource not accessible by integration/i.test(message)
-    if (isPermissionError) {
-      core.warning(
-        'Status write skipped (token lacks statuses:write — common on fork PRs). Falling back to job exit-code gating.'
-      )
-      return
-    }
-    throw err
-  }
 }
 
 const run = async (): Promise<void> => {
@@ -181,16 +200,33 @@ const run = async (): Promise<void> => {
     return
   }
 
+  // Mark the aggregated check_run on the previous HEAD SHA as stale, so
+  // the PR's Commits tab doesn't accumulate yellow-dot queued entries
+  // for every superseded push. Only synchronize carries `before`; opened
+  // / reopened / auto_merge_enabled don't bring a previous SHA we'd
+  // need to clean up.
+  if (inputs.mode === 'main-gate' && action === 'synchronize') {
+    const before = (ctx.payload as { before?: string }).before
+    if (before !== undefined && before !== ZERO_SHA && before !== sha) {
+      await markCheckRunStale(octokit, {
+        owner: ctx.repo.owner,
+        repo: ctx.repo.repo,
+        sha: before,
+        name: inputs.context
+      })
+    }
+  }
+
   if (mode === 'pending') {
     if (inputs.mode === 'main-gate') {
-      await tryWriteCommitStatus(octokit, {
+      await writeCheckRun(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
         sha,
         state: 'pending',
-        context: inputs.context,
-        description: PENDING_DESCRIPTION,
-        target_url: targetUrl
+        name: inputs.context,
+        output: buildPendingOutput(),
+        details_url: targetUrl
       })
     }
     core.setOutput('state', 'pending')
@@ -254,8 +290,8 @@ const run = async (): Promise<void> => {
   }
 
   // Polling has no internal timeout. The job's timeout-minutes will kill
-  // this run if checks take too long; commit status remains as last
-  // written (= the pending we set in pending mode).
+  // this run if checks take too long; the aggregate check_run remains as
+  // last written (= the queued one we set in pending mode).
   core.startGroup('Polling')
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
@@ -276,17 +312,24 @@ const run = async (): Promise<void> => {
   )
   core.endGroup()
 
-  const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`
-
   if (inputs.mode === 'main-gate') {
-    await tryWriteCommitStatus(octokit, {
+    const pollingOutput =
+      pollResult.state === 'pending'
+        ? buildPendingOutput()
+        : buildPollingOutput(pollResult.state, {
+            total: lastTotal,
+            evaluated: lastEvaluated,
+            completed: lastCompleted,
+            iterations: pollResult.iterations
+          })
+    await writeCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
       sha,
       state: pollResult.state,
-      context: inputs.context,
-      description: description.slice(0, 140),
-      target_url: targetUrl
+      name: inputs.context,
+      output: pollingOutput,
+      details_url: targetUrl
     })
   }
 

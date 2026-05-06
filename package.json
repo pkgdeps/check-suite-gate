@@ -2,7 +2,7 @@
   "name": "check-suite-gate",
   "version": "0.0.0",
   "private": true,
-  "description": "Aggregate check_suite results into a single commit status (multi-workflow alls-green successor)",
+  "description": "Aggregate check_suite results into a single check_run (multi-workflow alls-green successor)",
   "main": "dist/index.js",
   "engines": {
     "node": ">=24"

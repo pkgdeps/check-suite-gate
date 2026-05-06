@@ -4,8 +4,8 @@ description: |
   code (success/failure). The job's check_run conclusion is what GitHub's
   required-check evaluates, so the action works uniformly on same-repo and
   fork PRs. Set `name: automerge-gate/all-passed` on the gate job to match
-  the required-check context. An aggregated commit status is also written
-  as a courtesy when the token has write permission.
+  the required-check context. An aggregated check_run is also written as a
+  courtesy when the token has `checks: write`.
 author: azu
 
 branding:
@@ -14,7 +14,7 @@ branding:
 
 inputs:
   context:
-    description: 'Commit status context name to write. Must match the required check in your ruleset.'
+    description: 'Aggregated check_run name to write. Must match the required check in your ruleset.'
     required: false
     default: 'automerge-gate/all-passed'
   poll-interval-seconds:
@@ -30,10 +30,10 @@ inputs:
     required: false
     default: ''
   mode:
-    description: 'Gating mode. "main-gate" writes the aggregated commit status (same-repo PRs). "fork-gate" skips status writes and lets the job''s check_run conclusion be the gate (fork PRs whose token is read-only). Required — use one mode per job in the 2-job pattern.'
+    description: 'Gating mode. "main-gate" writes the aggregated check_run (same-repo PRs). "fork-gate" skips check_run writes and lets the job''s own check_run conclusion be the gate (fork PRs whose token is read-only). Required — use one mode per job in the 2-job pattern.'
     required: true
   token:
-    description: 'GitHub token used to read checks and (when permitted) write commit status'
+    description: 'GitHub token used to read checks and (when permitted) write the aggregated check_run'
     required: false
     default: ${{ github.token }}
 

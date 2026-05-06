@@ -5,8 +5,7 @@ on:
     types: [opened, synchronize, reopened, auto_merge_enabled]
 
 permissions:
-  statuses: write
-  checks: read
+  checks: write
   pull-requests: read
   actions: read
 
