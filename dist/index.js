@@ -23925,16 +23925,22 @@ var parseInputs = (raw) => {
 
 // src/api.ts
 var fetchAllCheckRuns = async (octokit, owner, repo, sha) => {
-  const suites = await octokit.paginate(
-    octokit.rest.checks.listSuitesForRef,
-    { owner, repo, ref: sha, per_page: 100 }
+  const suites = await withRetry(
+    () => octokit.paginate(
+      octokit.rest.checks.listSuitesForRef,
+      { owner, repo, ref: sha, per_page: 100 }
+    ),
+    { retries: 3, baseDelayMs: 500 }
   );
   const runs = [];
   for (const suite of suites) {
     const slug = suite.app?.slug ?? "unknown";
-    const suiteRuns = await octokit.paginate(
-      octokit.rest.checks.listForSuite,
-      { owner, repo, check_suite_id: suite.id, per_page: 100 }
+    const suiteRuns = await withRetry(
+      () => octokit.paginate(
+        octokit.rest.checks.listForSuite,
+        { owner, repo, check_suite_id: suite.id, per_page: 100 }
+      ),
+      { retries: 3, baseDelayMs: 500 }
     );
     for (const r of suiteRuns) {
       runs.push({

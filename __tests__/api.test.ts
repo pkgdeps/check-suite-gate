@@ -99,6 +99,74 @@ describe('fetchAllCheckRuns', () => {
     const result = await fetchAllCheckRuns(octokit, 'o', 'r', 'sha')
     expect(result[0].app.slug).toBe('unknown')
   })
+
+  it('retries on 5xx errors from paginate', async () => {
+    const listSuites = vi.fn().mockResolvedValue({
+      data: {
+        check_suites: [
+          { id: 1, app: { slug: 'github-actions' }, status: 'completed' }
+        ]
+      }
+    })
+    const listForSuite = vi.fn().mockResolvedValue({
+      data: {
+        check_runs: [
+          {
+            id: 100,
+            name: 'r',
+            status: 'completed',
+            conclusion: 'success',
+            details_url: ''
+          }
+        ]
+      }
+    })
+
+    let paginateCalls = 0
+    const octokit: OctokitLike = {
+      rest: {
+        checks: {
+          listSuitesForRef: listSuites,
+          listForSuite
+        },
+        repos: { createCommitStatus: vi.fn() }
+      },
+      paginate: async (fn: unknown, params: unknown) => {
+        paginateCalls++
+        if (paginateCalls === 1) {
+          throw { status: 503 }
+        }
+        const res = await (fn as (p: unknown) => Promise<{ data: unknown }>)(
+          params
+        )
+        const data = (
+          res as { data: { check_suites?: unknown[]; check_runs?: unknown[] } }
+        ).data
+        return (data.check_suites ?? data.check_runs ?? []) as unknown[]
+      }
+    } as unknown as OctokitLike
+
+    const result = await fetchAllCheckRuns(octokit, 'o', 'r', 'sha')
+    expect(result).toHaveLength(1)
+    expect(paginateCalls).toBeGreaterThanOrEqual(2)
+  })
+
+  it('does not retry on 4xx errors from paginate', async () => {
+    const octokit: OctokitLike = {
+      rest: {
+        checks: {
+          listSuitesForRef: vi.fn(),
+          listForSuite: vi.fn()
+        },
+        repos: { createCommitStatus: vi.fn() }
+      },
+      paginate: vi.fn().mockRejectedValue({ status: 404 })
+    } as unknown as OctokitLike
+
+    await expect(fetchAllCheckRuns(octokit, 'o', 'r', 'sha')).rejects.toEqual({
+      status: 404
+    })
+  })
 })
 
 describe('withRetry', () => {

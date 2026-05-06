@@ -58,17 +58,25 @@ export const fetchAllCheckRuns = async (
   repo: string,
   sha: string
 ): Promise<AggregatedCheckRun[]> => {
-  const suites = await octokit.paginate<CheckSuiteData>(
-    octokit.rest.checks.listSuitesForRef as never,
-    { owner, repo, ref: sha, per_page: 100 }
+  const suites = await withRetry(
+    () =>
+      octokit.paginate<CheckSuiteData>(
+        octokit.rest.checks.listSuitesForRef as never,
+        { owner, repo, ref: sha, per_page: 100 }
+      ),
+    { retries: 3, baseDelayMs: 500 }
   )
 
   const runs: AggregatedCheckRun[] = []
   for (const suite of suites) {
     const slug = suite.app?.slug ?? 'unknown'
-    const suiteRuns = await octokit.paginate<CheckRunData>(
-      octokit.rest.checks.listForSuite as never,
-      { owner, repo, check_suite_id: suite.id, per_page: 100 }
+    const suiteRuns = await withRetry(
+      () =>
+        octokit.paginate<CheckRunData>(
+          octokit.rest.checks.listForSuite as never,
+          { owner, repo, check_suite_id: suite.id, per_page: 100 }
+        ),
+      { retries: 3, baseDelayMs: 500 }
     )
     for (const r of suiteRuns) {
       runs.push({
