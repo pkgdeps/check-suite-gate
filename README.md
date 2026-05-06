@@ -68,9 +68,9 @@ Note: GitHub rulesets only support AND across required checks (no OR / condition
 
 ## Usage
 
-### 1. Open a PR that adds the workflow
+### 1. Add the workflow
 
-Create `.github/workflows/automerge-gate.yaml` in a PR. GitHub runs the workflow against that PR (workflow changes are exercised on the PR that introduces them), so the gate writes a `pending` status to the PR's HEAD SHA. This **seeds the status context** so it shows up in repo settings later. Same PR is reused in step 3 — no throwaway PR needed.
+Create `.github/workflows/automerge-gate.yaml` in your repository and merge it to your default branch (`pull_request` triggered workflows only fire when the workflow file already exists on the default branch):
 
 ```yaml
 name: automerge-gate
@@ -110,18 +110,18 @@ jobs:
             ci / lint
 ```
 
-### 2. Register the aggregated status + enable auto-merge
+### 2. Register the required check + allow auto-merge
 
-Two things in repository **Settings**:
+In repository **Settings**:
 
-- **Rules → Rulesets** (or **Branches → Branch protection**): add a rule that requires the status check named `automerge-gate/all-passed` to pass. With the context seeded by step 1's PR, it now shows up in the picker.
+- **Rules → Rulesets** (or **Branches → Branch protection**): add a rule that requires the status check `automerge-gate/all-passed`. Type the context name directly — rulesets accept it without needing it to be seeded first.
 - **General → Pull Requests**: tick **Allow auto-merge**. Without this the *Enable Auto Merge* button doesn't show up on PRs.
 
 This single required check is now the only thing standing between a PR and merge. Any check that lands on the PR — Renovate, Codecov, your own workflows — gets aggregated into it.
 
 ### 3. Press Enable Auto Merge
 
-On the PR from step 1 (or any later PR):
+On any PR you want to ship:
 
 1. Get the PR ready (review, fix, etc.).
 2. Click **Enable Auto Merge**.
