@@ -97,10 +97,12 @@ jobs:
 
 Why two jobs:
 
-- The `if:` condition `head.repo.id == base.repo.id` is a mutex — exactly one of `main-gate` / `fork-gate` runs per PR. The other is skipped, and skipped jobs do not block required checks.
-- The `main-gate` job (main-gate mode) writes the aggregated status. Same-repo PRs have a full-permission `GITHUB_TOKEN`, so the write succeeds.
-- The `fork-gate` job (fork-gate mode) has its `name:` set to `automerge-gate/all-passed`. GitHub names the check_run after the job, so the required check is satisfied by the job's check_run conclusion directly — no token write needed.
-- Putting both in a single job with the same name as the status would produce duplicate entries in the PR UI (`status` + `check_run`), which makes the required-check evaluation ambiguous. Splitting on `if:` keeps each PR with exactly one signal of the right kind.
+**Both jobs do the same polling**: each one waits for every other check on the PR to finish, then decides success or failure. They only differ in *how* they report the verdict to GitHub's required check:
+
+- **`main-gate`** (same-repo PR): the token has `statuses: write`, so after polling the action writes the verdict as a commit status named `automerge-gate/all-passed`.
+- **`fork-gate`** (fork PR): the token is read-only — a status write would 403. The job's `name:` is set to `automerge-gate/all-passed`, so GitHub names *the job's own check_run* after it. After polling, the action exits with success or failure, and that exit code becomes the check_run conclusion — which is what the required check evaluates.
+
+The `if:` condition `head.repo.id == base.repo.id` is a mutex: exactly one of the two runs per PR; the other is `skipped`, and skipped jobs don't block required checks. Splitting them keeps each PR with exactly one signal of the right kind — combining them into a single job whose name matches the status would produce two `automerge-gate/all-passed` entries in the PR UI (one status, one check_run) and make the required-check evaluation ambiguous.
 
 See [Inputs](#inputs) for optional inputs like `ignore-apps` / `ignore-checks`.
 
