@@ -106,34 +106,3 @@ export const withRetry = async <T>(
   }
   throw lastErr
 }
-
-// Polls listSuitesForRef until the trigger check_suite (the one whose
-// completed event invoked the action) is reported as completed. Mitigates
-// the eventual-consistency window where the trigger suite still appears
-// in_progress in the API response right after the event fires.
-export const waitForTriggerSuiteCompleted = async (
-  octokit: OctokitLike,
-  owner: string,
-  repo: string,
-  sha: string,
-  triggerSuiteId: number,
-  options: { attempts: number; delayMs: number } = {
-    attempts: 5,
-    delayMs: 2000
-  }
-): Promise<boolean> => {
-  for (let i = 0; i < options.attempts; i++) {
-    const { data } = await octokit.rest.checks.listSuitesForRef({
-      owner,
-      repo,
-      ref: sha,
-      per_page: 100
-    })
-    const trigger = data.check_suites.find((s) => s.id === triggerSuiteId)
-    if (trigger !== undefined && trigger.status === 'completed') return true
-    if (i < options.attempts - 1) {
-      await new Promise((r) => setTimeout(r, options.delayMs))
-    }
-  }
-  return false
-}

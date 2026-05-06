@@ -1,10 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import {
-  fetchAllCheckRuns,
-  withRetry,
-  waitForTriggerSuiteCompleted,
-  type OctokitLike
-} from '../src/api.js'
+import { fetchAllCheckRuns, withRetry, type OctokitLike } from '../src/api.js'
 
 describe('fetchAllCheckRuns', () => {
   it('fetches suites and flattens runs across pages', async () => {
@@ -137,48 +132,5 @@ describe('withRetry', () => {
       { status: 503 }
     )
     expect(fn).toHaveBeenCalledTimes(3)
-  })
-})
-
-describe('waitForTriggerSuiteCompleted', () => {
-  it('returns true once the trigger suite is completed', async () => {
-    const listSuites = vi
-      .fn()
-      .mockResolvedValueOnce({
-        data: {
-          check_suites: [{ id: 1, app: { slug: 'x' }, status: 'in_progress' }]
-        }
-      })
-      .mockResolvedValueOnce({
-        data: {
-          check_suites: [{ id: 1, app: { slug: 'x' }, status: 'completed' }]
-        }
-      })
-    const octokit = {
-      rest: { checks: { listSuitesForRef: listSuites } }
-    } as unknown as OctokitLike
-    const ok = await waitForTriggerSuiteCompleted(octokit, 'o', 'r', 'sha', 1, {
-      attempts: 3,
-      delayMs: 1
-    })
-    expect(ok).toBe(true)
-    expect(listSuites).toHaveBeenCalledTimes(2)
-  })
-
-  it('returns false if it never completes within the budget', async () => {
-    const listSuites = vi.fn().mockResolvedValue({
-      data: {
-        check_suites: [{ id: 1, app: { slug: 'x' }, status: 'in_progress' }]
-      }
-    })
-    const octokit = {
-      rest: { checks: { listSuitesForRef: listSuites } }
-    } as unknown as OctokitLike
-    const ok = await waitForTriggerSuiteCompleted(octokit, 'o', 'r', 'sha', 1, {
-      attempts: 2,
-      delayMs: 1
-    })
-    expect(ok).toBe(false)
-    expect(listSuites).toHaveBeenCalledTimes(2)
   })
 })
