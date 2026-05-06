@@ -33,9 +33,9 @@ sequenceDiagram
     end
 ```
 
-1. A PR is merge-blocked from the moment it's opened.
+1. A PR is merge-blocked from the moment it's opened. The gate writes a check_run with `conclusion: action_required` so the PR Checks UI shows "Click Enable Auto Merge to start the gate."
 2. When the maintainer clicks **Enable Auto Merge**, the gate workflow polls every check on the PR.
-3. It writes the verdict (success or failure) to the required check `automerge-gate/all-passed`.
+3. It updates the same check_run with the verdict (`conclusion: success` or `failure`).
 4. GitHub's native auto-merge merges the PR as soon as the required check turns green.
 
 If Auto Merge is already enabled when you push a new commit, the gate re-evaluates the new SHA automatically — no need to disable→enable.
@@ -62,15 +62,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Same-repo PR. Token has statuses:write, so the action writes the aggregated commit status directly.
+  # Same-repo PR. Token has checks:write, so the action writes the aggregated check_run directly.
   main-gate:
     if: github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
     runs-on: ubuntu-latest
     # timeout-minutes is the action's only timeout. Bound it to your CI's worst case.
     timeout-minutes: 10
     permissions:
-      statuses: write
-      checks: read
+      checks: write
       pull-requests: read
       actions: read
     steps:
@@ -99,10 +98,10 @@ Why two jobs:
 
 **Both jobs do the same polling**: each one waits for every other check on the PR to finish, then decides success or failure. They only differ in *how* they report the verdict to GitHub's required check:
 
-- **`main-gate`** (same-repo PR): the token has `statuses: write`, so after polling the action writes the verdict as a commit status named `automerge-gate/all-passed`.
-- **`fork-gate`** (fork PR): the token is read-only — a status write would 403. The job's `name:` is set to `automerge-gate/all-passed`, so GitHub names *the job's own check_run* after it. After polling, the action exits with success or failure, and that exit code becomes the check_run conclusion — which is what the required check evaluates.
+- **`main-gate`** (same-repo PR): the token has `checks: write`, so the action writes the aggregated verdict as a check_run named `automerge-gate/all-passed`. While Auto Merge has not been enabled yet, the action writes that check_run with `conclusion: action_required` so the maintainer sees a clear "click Enable Auto Merge" prompt; once polling runs, the same check_run is patched to `conclusion: success` or `failure`.
+- **`fork-gate`** (fork PR): the token is read-only — a check_run write would 403. The job's `name:` is set to `automerge-gate/all-passed`, so GitHub names *the job's own check_run* after it. After polling, the action exits with success or failure, and that exit code becomes the check_run conclusion — which is what the required check evaluates.
 
-The `if:` condition `head.repo.id == base.repo.id` is a mutex: exactly one of the two runs per PR; the other is `skipped`, and skipped jobs don't block required checks. Splitting them keeps each PR with exactly one signal of the right kind — combining them into a single job whose name matches the status would produce two `automerge-gate/all-passed` entries in the PR UI (one status, one check_run) and make the required-check evaluation ambiguous.
+The `if:` condition `head.repo.id == base.repo.id` is a mutex: exactly one of the two runs per PR; the other is `skipped`, and skipped jobs don't block required checks. Splitting them keeps each PR with exactly one signal of the right kind — combining them into a single job whose name matches the aggregate would produce two `automerge-gate/all-passed` check_runs in the PR UI (one written by the action, one created by GitHub Actions for the job) and make the required-check evaluation ambiguous.
 
 See [Inputs](#inputs) for optional inputs like `ignore-apps` / `ignore-checks`.
 
@@ -131,12 +130,12 @@ On any PR you want to ship:
 
 | name | required | default | description |
 |---|---|---|---|
-| `context` | no | `automerge-gate/all-passed` | Commit status context name. Must match the required check in your ruleset. |
+| `context` | no | `automerge-gate/all-passed` | Aggregated check_run name. Must match the required check in your ruleset. |
 | `poll-interval-seconds` | no | `30` | How often to re-fetch check status |
 | `ignore-apps` | no | (empty) | GitHub App slugs to exclude. Comma-separated **or newline-separated** |
 | `ignore-checks` | no | (empty) | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated** |
-| `mode` | **yes** | (none) | `main-gate` / `fork-gate`. `main-gate` writes the aggregated commit status (used by the `main-gate` job for same-repo PRs). `fork-gate` skips the status write entirely so the gate is the job's check_run conclusion (used by the `fork-gate` job whose `name:` matches the required check, for fork PRs with read-only token). |
-| `token` | no | `${{ github.token }}` | GitHub token used to read checks and (when permitted) write commit status |
+| `mode` | **yes** | (none) | `main-gate` / `fork-gate`. `main-gate` writes the aggregated check_run (used by the `main-gate` job for same-repo PRs). `fork-gate` skips the check_run write entirely so the gate is the job's own check_run conclusion (used by the `fork-gate` job whose `name:` matches the required check, for fork PRs with read-only token). |
+| `token` | no | `${{ github.token }}` | GitHub token used to read checks and (when permitted) write the aggregated check_run |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
 
@@ -196,7 +195,8 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 
 - **`pull_request.auto_merge_enabled` has no recursion guard** unlike `check_suite.completed`, so the gate reliably fires on GitHub-Actions-only repos.
 - **Polling is gated by an explicit signal** (Enable Auto Merge), so PRs the maintainer hasn't yet decided to merge don't burn runner minutes. Compared with merge-gatekeeper, which polls on every PR push, the resource cost scales with merge intent rather than with PR throughput.
-- **Gating is the gate job's check_run conclusion, not a commit status.** GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate can't run there at all. By gating on the job's exit code (the check_run conclusion named `automerge-gate/all-passed` to match the required check), the action works uniformly for same-repo and fork PRs. The aggregated commit status is still written as a courtesy in `main-gate` mode when the token has write permission — the dual signal is convenient when both are visible. There's no self-referencing loop because the action filters out check_runs from its own workflow.
+- **Gating is the gate job's check_run conclusion.** GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a write-based gate can't run there at all. By gating on the job's exit code (the check_run conclusion named `automerge-gate/all-passed` to match the required check), the action works uniformly for same-repo and fork PRs. The aggregated check_run is still written as a courtesy in `main-gate` mode when the token has `checks: write` — same name as the required check, with `conclusion: action_required` while waiting for Enable Auto Merge and `success` / `failure` after polling. There's no self-referencing loop because the action filters out check_runs from its own workflow.
+- **`action_required` over `pending` for the "click Enable Auto Merge" state.** Commit statuses only have `pending` (a non-terminal state that's append-only per SHA, so old SHAs keep their pending forever). The Checks API has `conclusion: action_required` — a *terminal* state that's PATCH-able by id and renders in the UI as "Action required" rather than a generic spinning yellow dot. Each new push updates a single check_run row instead of stacking pending entries.
 - **GitHub native auto-merge handles the merge itself** once the required check turns green. This Action does not call `pulls.merge`.
 - **No internal timeout input** — timeout is managed by the job's `timeout-minutes`. Having two timeouts to keep in sync (action input vs job-level) is a footgun, so the action delegates fully. There's exactly one knob, and it's a standard GitHub Actions feature.
 
@@ -205,7 +205,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 - **Merge queue (`merge_group`)** is not supported.
 - **Dead runner / job timeout**: if the runner is killed mid-polling (job hits `timeout-minutes`, dies physically, etc.), the gate job's check_run becomes `failure` (or `cancelled`), so the required check stays red and merge stays blocked. The maintainer can disable then re-enable Auto Merge to re-trigger.
 - **CIs that only write legacy commit statuses**: GitHub has two ways for CIs to report results — the modern check_run / check_suite API (used by GitHub Actions, Cloudflare Pages, Codecov, etc.) and the legacy commit-status API (used by some older or self-hosted CIs like Atlantis or some Jenkins setups). The action polls the check_run / check_suite side, so a CI that only writes legacy commit statuses isn't aggregated. If you depend on such a CI, register it as a separate required check in your ruleset alongside `automerge-gate/all-passed`.
-- **Past commits keep their old `pending` status (`main-gate` only)**: every push to a PR writes a new commit status to the new HEAD SHA, but GitHub's commit status API is append-only and per-SHA — there's no way to delete or rewrite a status on an older SHA. So past SHAs keep whatever was last written to them, typically the `pending` from when each was the head. This has no effect on PR-level evaluation or auto-merge (both look only at the latest SHA), but the per-commit hover in the PR's Commits tab shows `pending` for older SHAs. **There's no API-side fix**; if the staleness bothers you, drop the `main-gate` job and use only `fork-gate`-style gating (which writes no status), at the cost of losing the courtesy commit status next to other entries in the PR UI.
+- **Past commits keep their old `action_required` (`main-gate` only)**: every push to a PR creates an aggregated check_run on the new HEAD SHA. The action does not retroactively touch previous SHAs, so a SHA that was pushed but never had Auto Merge enabled before being superseded keeps its `action_required` conclusion in the PR's Commits tab. This has no effect on PR-level evaluation or auto-merge (both look only at the latest SHA). The Checks API does have `conclusion: stale` for exactly this scenario; cleaning up old SHAs on each push (e.g. via `pull_request.synchronize.before`) is a future enhancement not currently implemented.
 
 ## Versioning
 

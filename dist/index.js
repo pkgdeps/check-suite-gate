@@ -24083,20 +24083,69 @@ var pollUntilComplete = async (fetchRuns, options) => {
   }
 };
 
-// src/status.ts
+// src/check-run.ts
 var buildTargetUrl = (input) => `${input.serverUrl}/${input.repository}/actions/runs/${input.runId}/attempts/${input.runAttempt}`;
-var writeCommitStatus = async (octokit, input, retryOptions = {
+var CHECK_RUN_EXTERNAL_ID = "automerge-gate";
+var TITLE = "automerge-gate";
+var stateToCheckRunFields = (state) => {
+  if (state === "pending") {
+    return { status: "completed", conclusion: "action_required" };
+  }
+  return { status: "completed", conclusion: state };
+};
+var writeCheckRun = async (octokit, input, retryOptions = {
   retries: 3,
   baseDelayMs: 500
 }) => {
+  const { owner, repo, sha, state, name, description, details_url } = input;
+  const { status, conclusion } = stateToCheckRunFields(state);
+  const output = description !== void 0 ? { title: TITLE, summary: description } : void 0;
+  const list = await withRetry(
+    () => octokit.rest.checks.listForRef({
+      owner,
+      repo,
+      ref: sha,
+      check_name: name,
+      per_page: 100
+    }),
+    retryOptions
+  );
+  const existing = list.data.check_runs.find(
+    (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
+  );
+  if (existing !== void 0) {
+    await withRetry(
+      () => octokit.rest.checks.update({
+        owner,
+        repo,
+        check_run_id: existing.id,
+        status,
+        conclusion,
+        output,
+        details_url
+      }),
+      retryOptions
+    );
+    return;
+  }
   await withRetry(
-    () => octokit.rest.repos.createCommitStatus(input),
+    () => octokit.rest.checks.create({
+      owner,
+      repo,
+      name,
+      head_sha: sha,
+      status,
+      conclusion,
+      external_id: CHECK_RUN_EXTERNAL_ID,
+      output,
+      details_url
+    }),
     retryOptions
   );
 };
 
 // src/index.ts
-var PENDING_DESCRIPTION = "Awaiting Auto Merge enable";
+var PENDING_DESCRIPTION = 'Click "Enable Auto Merge" on this PR to start the gate.';
 var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
 var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
 var determineMode = (input) => {
@@ -24122,15 +24171,15 @@ var writeSummary = async (input) => {
     ["polling iterations", String(input.iterations)]
   ]).write();
 };
-var tryWriteCommitStatus = async (octokit, input) => {
+var tryWriteCheckRun = async (octokit, input) => {
   try {
-    await writeCommitStatus(octokit, input);
+    await writeCheckRun(octokit, input);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const isPermissionError = /\b403\b/.test(message) || /Resource not accessible by integration/i.test(message);
     if (isPermissionError) {
       core.warning(
-        "Status write skipped (token lacks statuses:write \u2014 common on fork PRs). Falling back to job exit-code gating."
+        "Check_run write skipped (token lacks checks:write \u2014 common on fork PRs). Falling back to job exit-code gating."
       );
       return;
     }
@@ -24195,14 +24244,14 @@ var run = async () => {
   }
   if (mode === "pending") {
     if (inputs.mode === "main-gate") {
-      await tryWriteCommitStatus(octokit, {
+      await tryWriteCheckRun(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
         sha,
         state: "pending",
-        context: inputs.context,
+        name: inputs.context,
         description: PENDING_DESCRIPTION,
-        target_url: targetUrl
+        details_url: targetUrl
       });
     }
     core.setOutput("state", "pending");
@@ -24279,14 +24328,14 @@ var run = async () => {
   core.endGroup();
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`;
   if (inputs.mode === "main-gate") {
-    await tryWriteCommitStatus(octokit, {
+    await tryWriteCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
       sha,
       state: pollResult.state,
-      context: inputs.context,
+      name: inputs.context,
       description: description.slice(0, 140),
-      target_url: targetUrl
+      details_url: targetUrl
     });
   }
   core.setOutput("state", pollResult.state);

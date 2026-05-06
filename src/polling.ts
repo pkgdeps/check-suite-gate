@@ -24,7 +24,7 @@ const sleep = (ms: number): Promise<void> =>
 // Polls fetchRuns until aggregate(...) returns a terminal state (success
 // or failure). The loop has no internal timeout — the caller is expected
 // to bound execution via the workflow job's `timeout-minutes`. On runner
-// kill, the commit status remains as it was last written.
+// kill, the aggregated check_run remains as it was last written.
 //
 // fetchRuns provides the (already-filtered, already-self-excluded) runs
 // to aggregate; the caller can capture per-iteration bookkeeping via

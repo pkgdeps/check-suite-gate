@@ -14,11 +14,12 @@ import {
 import { pollUntilComplete } from './polling.js'
 import {
   buildTargetUrl,
-  writeCommitStatus,
-  type WriteCommitStatusInput
-} from './status.js'
+  writeCheckRun,
+  type WriteCheckRunInput
+} from './check-run.js'
 
-const PENDING_DESCRIPTION = 'Awaiting Auto Merge enable'
+const PENDING_DESCRIPTION =
+  'Click "Enable Auto Merge" on this PR to start the gate.'
 
 // pull_request activity types that may bring a new HEAD SHA to the PR.
 // The gate re-evaluates the SHA on these. Triggers pending mode by default,
@@ -78,16 +79,16 @@ const writeSummary = async (input: SummaryInput): Promise<void> => {
     .write()
 }
 
-// Status write is a courtesy in v2: gating is done via the gate job's exit
-// code (the check_run conclusion). When the token is read-only (the default
-// on fork PRs), the API returns 403 — log a warning and continue. The
-// polling verdict still drives the job's exit code.
-const tryWriteCommitStatus = async (
+// Check_run write is a courtesy in v2: gating is done via the gate job's
+// exit code (the check_run conclusion). When the token is read-only (the
+// default on fork PRs), the API returns 403 — log a warning and continue.
+// The polling verdict still drives the job's exit code.
+const tryWriteCheckRun = async (
   octokit: OctokitLike,
-  input: WriteCommitStatusInput
+  input: WriteCheckRunInput
 ): Promise<void> => {
   try {
-    await writeCommitStatus(octokit, input)
+    await writeCheckRun(octokit, input)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     const isPermissionError =
@@ -95,7 +96,7 @@ const tryWriteCommitStatus = async (
       /Resource not accessible by integration/i.test(message)
     if (isPermissionError) {
       core.warning(
-        'Status write skipped (token lacks statuses:write — common on fork PRs). Falling back to job exit-code gating.'
+        'Check_run write skipped (token lacks checks:write — common on fork PRs). Falling back to job exit-code gating.'
       )
       return
     }
@@ -183,14 +184,14 @@ const run = async (): Promise<void> => {
 
   if (mode === 'pending') {
     if (inputs.mode === 'main-gate') {
-      await tryWriteCommitStatus(octokit, {
+      await tryWriteCheckRun(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
         sha,
         state: 'pending',
-        context: inputs.context,
+        name: inputs.context,
         description: PENDING_DESCRIPTION,
-        target_url: targetUrl
+        details_url: targetUrl
       })
     }
     core.setOutput('state', 'pending')
@@ -254,8 +255,8 @@ const run = async (): Promise<void> => {
   }
 
   // Polling has no internal timeout. The job's timeout-minutes will kill
-  // this run if checks take too long; commit status remains as last
-  // written (= the pending we set in pending mode).
+  // this run if checks take too long; the aggregate check_run remains as
+  // last written (= the queued one we set in pending mode).
   core.startGroup('Polling')
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
@@ -279,14 +280,14 @@ const run = async (): Promise<void> => {
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`
 
   if (inputs.mode === 'main-gate') {
-    await tryWriteCommitStatus(octokit, {
+    await tryWriteCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
       sha,
       state: pollResult.state,
-      context: inputs.context,
+      name: inputs.context,
       description: description.slice(0, 140),
-      target_url: targetUrl
+      details_url: targetUrl
     })
   }
 

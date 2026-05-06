@@ -14,6 +14,67 @@ type CheckRunData = {
   details_url: string
 }
 
+export type CheckRunListItem = {
+  id: number
+  name: string
+  status: string
+  conclusion: string | null
+  external_id: string | null
+  app: { slug: string } | null
+}
+
+export type CheckRunOutput = {
+  title: string
+  summary: string
+}
+
+export type CheckRunCreateParams = {
+  owner: string
+  repo: string
+  name: string
+  head_sha: string
+  status?: 'queued' | 'in_progress' | 'completed'
+  conclusion?:
+    | 'success'
+    | 'failure'
+    | 'neutral'
+    | 'cancelled'
+    | 'skipped'
+    | 'timed_out'
+    | 'action_required'
+    | 'stale'
+  external_id?: string
+  details_url?: string
+  output?: CheckRunOutput
+}
+
+export type CheckRunUpdateParams = {
+  owner: string
+  repo: string
+  check_run_id: number
+  status?: 'queued' | 'in_progress' | 'completed'
+  conclusion?:
+    | 'success'
+    | 'failure'
+    | 'neutral'
+    | 'cancelled'
+    | 'skipped'
+    | 'timed_out'
+    | 'action_required'
+    | 'stale'
+  details_url?: string
+  output?: CheckRunOutput
+}
+
+export type CheckRunListForRefParams = {
+  owner: string
+  repo: string
+  ref: string
+  check_name?: string
+  filter?: 'latest' | 'all'
+  per_page?: number
+}
+
 export type OctokitLike = {
   rest: {
     checks: {
@@ -29,17 +90,11 @@ export type OctokitLike = {
         check_suite_id: number
         per_page?: number
       }) => Promise<{ data: { check_runs: CheckRunData[] } }>
-    }
-    repos: {
-      createCommitStatus: (params: {
-        owner: string
-        repo: string
-        sha: string
-        state: 'pending' | 'success' | 'failure'
-        context: string
-        description?: string
-        target_url?: string
-      }) => Promise<unknown>
+      listForRef: (
+        params: CheckRunListForRefParams
+      ) => Promise<{ data: { check_runs: CheckRunListItem[] } }>
+      create: (params: CheckRunCreateParams) => Promise<unknown>
+      update: (params: CheckRunUpdateParams) => Promise<unknown>
     }
   }
   paginate: <T>(
