@@ -139,6 +139,7 @@ There is **no `timeout-seconds` input on purpose** — timeout is delegated enti
 - **Merge queue (`merge_group`)** is not supported in v1.
 - **Dead runner / job timeout**: if the runner is killed mid-polling (job hits `timeout-minutes`, dies physically, etc.), the commit status remains as it was last written (`pending`). The maintainer can disable then re-enable Auto Merge to re-trigger.
 - **Legacy commit status events**: third-party CI that writes via the legacy commit status API may not appear in `check_suite` and would not be aggregated. v2 does not handle the `status` event.
+- **Stale `pending` on past commits**: each push to a PR writes a `pending` status to the new HEAD SHA. GitHub's commit status API is append-only — past SHAs keep that `pending` in their history forever (no API to delete or overwrite). This has no effect on the PR's HEAD evaluation or on auto-merge (both look only at the latest SHA), but the per-commit hover in the PR's Commits tab will show `pending` for older SHAs.
 
 ## v1 (archived)
 
