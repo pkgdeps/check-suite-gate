@@ -6,27 +6,29 @@ This is the successor to [`pkgdeps/check-suite-gate`](https://github.com/pkgdeps
 
 ## How it works
 
+```mermaid
+sequenceDiagram
+    participant U as Maintainer
+    participant PR as Pull Request
+
+    U->>PR: open / push
+    Note over PR: Aggregated status: pending<br/>(required check → merge blocked)
+
+    U->>PR: click "Enable Auto Merge"
+    Note over PR: Wait until all checks complete
+
+    alt all checks pass
+        Note over PR: Aggregated status: success
+        PR->>PR: GitHub native auto-merge → merged
+    else any check fails
+        Note over PR: Aggregated status: failure<br/>(auto-merge blocked)
+    end
 ```
-PR opened / push / reopened
-   ↓
-automerge-gate writes a pending commit status
-   ("Awaiting Auto Merge enable")
-   → register this context as a required check, and the PR is merge-blocked
-   ↓
-maintainer presses "Enable Auto Merge"
-   ↓
-GitHub fires pull_request.auto_merge_enabled
-   ↓
-automerge-gate runs a polling loop:
-   listSuitesForRef + listForSuite for the PR head SHA
-   filter ignore-apps / ignore-checks / its own check_run
-   if every remaining run is completed → write success/failure → exit
-   else → sleep poll-interval-seconds → poll again
-   (the job's `timeout-minutes` bounds total runtime)
-   ↓
-status turns green → GitHub native auto-merge fires
-status turns red    → auto-merge is blocked
-```
+
+1. The PR is merge-blocked from the moment it's opened — the aggregated status is `pending` with `Awaiting Auto Merge enable`.
+2. When the maintainer clicks **Enable Auto Merge**, the gate starts watching every check on the PR.
+3. The gate flips the aggregated status to `success` (all checks green) or `failure` (any check red).
+4. GitHub's native auto-merge takes care of the actual merge once everything is green.
 
 ## Usage
 
