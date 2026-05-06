@@ -12,6 +12,47 @@ export const isHeadShaAction = (a: string): a is HeadShaAction =>
 //   skip    — do nothing for unsupported activity types.
 export type ActionMode = 'polling' | 'pending' | 'skip'
 
+/**
+ * Lowercase values GitHub uses for `pull_request_review.review.state`
+ * in webhook payloads. Source:
+ * https://docs.github.com/en/webhooks/webhook-events-and-payloads#pull_request_review
+ *
+ * `approved` is the only one this action treats as merge intent; the
+ * rest fall through to skip. The union is closed against the documented
+ * states; callers must coerce unknown strings to `null` (we don't
+ * extend it with `string` because that defeats the type-narrowing
+ * benefit of literal comparison).
+ */
+export type ReviewState =
+  | 'approved'
+  | 'changes_requested'
+  | 'commented'
+  | 'dismissed'
+  | 'pending'
+
+const KNOWN_REVIEW_STATES = [
+  'approved',
+  'changes_requested',
+  'commented',
+  'dismissed',
+  'pending'
+] as const
+
+/**
+ * Coerces a raw `payload.review.state` (typed as `string | undefined`
+ * by the webhook payload type) to a `ReviewState | null`. Unknown
+ * values fall back to `null` — they are treated as "no signal", same
+ * as if no review was attached.
+ */
+export const parseReviewState = (
+  raw: string | undefined | null
+): ReviewState | null => {
+  if (raw === undefined || raw === null) return null
+  return (KNOWN_REVIEW_STATES as readonly string[]).includes(raw)
+    ? (raw as ReviewState)
+    : null
+}
+
 export type DetermineModeInput = {
   /**
    * GitHub Actions `eventName` (e.g. `pull_request`,
@@ -26,11 +67,11 @@ export type DetermineModeInput = {
    */
   action: string
   /**
-   * Lowercase review state (`approved`, `changes_requested`,
-   * `commented`, ...) when `eventName === 'pull_request_review'`,
-   * otherwise `null`. Sourced from `payload.review.state`.
+   * Review state when `eventName === 'pull_request_review'`,
+   * otherwise `null`. Sourced from `payload.review.state` after
+   * coercing through `parseReviewState`.
    */
-  reviewState: string | null
+  reviewState: ReviewState | null
   /**
    * `true` when `action` is one of the activity types that brings a
    * new HEAD SHA (`opened` / `synchronize` / `reopened`). Use

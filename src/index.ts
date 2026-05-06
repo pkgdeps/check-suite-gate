@@ -18,7 +18,7 @@ import {
   markCheckRunStale,
   type CheckRunOutput
 } from './check-run.js'
-import { determineMode, isHeadShaAction } from './mode.js'
+import { determineMode, isHeadShaAction, parseReviewState } from './mode.js'
 import { hasActiveApproval } from './review-status.js'
 
 const ZERO_SHA = '0000000000000000000000000000000000000000'
@@ -130,7 +130,9 @@ const run = async (): Promise<void> => {
   }
   const reviewState =
     ctx.eventName === 'pull_request_review'
-      ? ((ctx.payload as { review?: { state?: string } }).review?.state ?? null)
+      ? parseReviewState(
+          (ctx.payload as { review?: { state?: string } }).review?.state
+        )
       : null
 
   core.startGroup('Setup')

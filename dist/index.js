@@ -24144,6 +24144,17 @@ var markCheckRunStale = async (octokit, input, retryOptions = {
 // src/mode.ts
 var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
 var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
+var KNOWN_REVIEW_STATES = [
+  "approved",
+  "changes_requested",
+  "commented",
+  "dismissed",
+  "pending"
+];
+var parseReviewState = (raw) => {
+  if (raw === void 0 || raw === null) return null;
+  return KNOWN_REVIEW_STATES.includes(raw) ? raw : null;
+};
 var determineMode = (input) => {
   const {
     eventName,
@@ -24282,7 +24293,9 @@ var run = async () => {
     core.setFailed("pull_request payload is missing");
     return;
   }
-  const reviewState = ctx.eventName === "pull_request_review" ? ctx.payload.review?.state ?? null : null;
+  const reviewState = ctx.eventName === "pull_request_review" ? parseReviewState(
+    ctx.payload.review?.state
+  ) : null;
   core.startGroup("Setup");
   core.info(`Event: ${ctx.eventName} (action=${action})`);
   core.info(`PR #${pr.number}, head SHA ${pr.head.sha}`);
