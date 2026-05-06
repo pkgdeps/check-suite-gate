@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "all": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "all": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "prepare": "git config set --local hook.bundle-dist.command 'npm run build && git add dist/index.js' && git config set --local hook.bundle-dist.event pre-commit"
   },
   "repository": {
     "type": "git",
