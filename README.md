@@ -62,7 +62,7 @@ on:
     types: [submitted]
 
 concurrency:
-  group: automerge-gate-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
