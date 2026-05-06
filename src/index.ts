@@ -111,7 +111,7 @@ const run = async (): Promise<void> => {
     context: core.getInput('context'),
     ignoreApps: core.getInput('ignore-apps'),
     ignoreChecks: core.getInput('ignore-checks'),
-    gate: core.getInput('gate'),
+    gateMode: core.getInput('gate-mode'),
     token: core.getInput('token'),
     pollIntervalSeconds: core.getInput('poll-interval-seconds')
   })
@@ -220,7 +220,7 @@ const run = async (): Promise<void> => {
   // for every superseded push. Only synchronize carries `before`; opened
   // / reopened / auto_merge_enabled don't bring a previous SHA we'd
   // need to clean up.
-  if (inputs.gate === 'main' && action === 'synchronize') {
+  if (inputs.gateMode === 'private' && action === 'synchronize') {
     const before = (ctx.payload as { before?: string }).before
     if (before !== undefined && before !== ZERO_SHA && before !== sha) {
       await markCheckRunStale(octokit, {
@@ -233,7 +233,7 @@ const run = async (): Promise<void> => {
   }
 
   if (mode === 'pending') {
-    if (inputs.gate === 'main') {
+    if (inputs.gateMode === 'private') {
       await writeCheckRun(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
@@ -278,7 +278,7 @@ const run = async (): Promise<void> => {
   // post-polling write replaces it with the actual verdict.
   //
   // See https://github.com/pkgdeps/automerge-gate/issues/17.
-  if (inputs.gate === 'main') {
+  if (inputs.gateMode === 'private') {
     await writeCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
@@ -355,7 +355,7 @@ const run = async (): Promise<void> => {
   )
   core.endGroup()
 
-  if (inputs.gate === 'main') {
+  if (inputs.gateMode === 'private') {
     const pollingOutput =
       pollResult.state === 'pending'
         ? buildPendingOutput(reason)

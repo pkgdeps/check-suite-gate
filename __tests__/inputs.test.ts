@@ -5,7 +5,7 @@ const raw = (override: Partial<RawInputs> = {}): RawInputs => ({
   context: 'automerge-gate/all-passed',
   ignoreApps: '',
   ignoreChecks: '',
-  gate: 'main',
+  gateMode: 'private',
   token: 'tok',
   pollIntervalSeconds: '30',
   ...override
@@ -50,14 +50,19 @@ describe('parseInputs', () => {
     )
   })
 
-  it("accepts gate = 'main' or 'fork'", () => {
-    expect(parseInputs(raw({ gate: 'main' })).gate).toBe('main')
-    expect(parseInputs(raw({ gate: 'fork' })).gate).toBe('fork')
+  it("accepts gateMode = 'private' or 'public'", () => {
+    expect(parseInputs(raw({ gateMode: 'private' })).gateMode).toBe('private')
+    expect(parseInputs(raw({ gateMode: 'public' })).gateMode).toBe('public')
   })
 
-  it('throws on invalid gate', () => {
-    expect(() => parseInputs(raw({ gate: 'main-gate' }))).toThrow(/gate/)
-    expect(() => parseInputs(raw({ gate: 'maybe' }))).toThrow(/gate/)
-    expect(() => parseInputs(raw({ gate: '' }))).toThrow(/gate/)
+  it('throws on invalid gateMode (legacy v2 values rejected with migration hint)', () => {
+    expect(() => parseInputs(raw({ gateMode: 'main' }))).toThrow(
+      /gate: main → gate-mode: private/
+    )
+    expect(() => parseInputs(raw({ gateMode: 'fork' }))).toThrow(
+      /gate: fork → gate-mode: public/
+    )
+    expect(() => parseInputs(raw({ gateMode: 'maybe' }))).toThrow(/gate-mode/)
+    expect(() => parseInputs(raw({ gateMode: '' }))).toThrow(/gate-mode/)
   })
 })
