@@ -182,7 +182,7 @@ const run = async (): Promise<void> => {
   }
 
   if (mode === 'pending') {
-    if (inputs.mode === 'commit-status') {
+    if (inputs.mode === 'main-gate') {
       await tryWriteCommitStatus(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
@@ -278,7 +278,7 @@ const run = async (): Promise<void> => {
 
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`
 
-  if (inputs.mode === 'commit-status') {
+  if (inputs.mode === 'main-gate') {
     await tryWriteCommitStatus(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,

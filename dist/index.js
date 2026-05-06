@@ -23908,9 +23908,9 @@ var parsePositiveInt = (raw, name) => {
   return n;
 };
 var parseMode = (raw) => {
-  if (raw === "commit-status" || raw === "fork-gate") return raw;
+  if (raw === "main-gate" || raw === "fork-gate") return raw;
   throw new Error(
-    `input \`mode\` must be "commit-status" or "fork-gate" (got: "${raw}")`
+    `input \`mode\` must be "main-gate" or "fork-gate" (got: "${raw}")`
   );
 };
 var parseInputs = (raw) => {
@@ -24194,7 +24194,7 @@ var run = async () => {
     return;
   }
   if (mode === "pending") {
-    if (inputs.mode === "commit-status") {
+    if (inputs.mode === "main-gate") {
       await tryWriteCommitStatus(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
@@ -24278,7 +24278,7 @@ var run = async () => {
   );
   core.endGroup();
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`;
-  if (inputs.mode === "commit-status") {
+  if (inputs.mode === "main-gate") {
     await tryWriteCommitStatus(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,

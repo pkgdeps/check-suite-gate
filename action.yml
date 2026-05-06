@@ -30,9 +30,8 @@ inputs:
     required: false
     default: ''
   mode:
-    description: 'Gating mode. "commit-status" (default) writes the aggregated commit status. "fork-gate" skips status writes entirely — use this in a fork-only job whose name matches the required check, since fork PRs have a read-only token.'
-    required: false
-    default: 'commit-status'
+    description: 'Gating mode. "main-gate" writes the aggregated commit status (same-repo PRs). "fork-gate" skips status writes and lets the job''s check_run conclusion be the gate (fork PRs whose token is read-only). Required — use one mode per job in the 2-job pattern.'
+    required: true
   token:
     description: 'GitHub token used to read checks and (when permitted) write commit status'
     required: false

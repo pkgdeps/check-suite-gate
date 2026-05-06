@@ -40,7 +40,7 @@ sequenceDiagram
 
 **If Auto Merge is already enabled when you push a new commit**: the action treats the synchronize event the same as `auto_merge_enabled` — it polls until all checks complete, then exits with the verdict. So you don't need to disable→enable Auto Merge after every push to retrigger the gate.
 
-As a courtesy, the `gate` job (commit-status mode) writes an aggregated commit status (`automerge-gate/all-passed`) so the status appears next to other commit statuses in the PR UI. Fork PRs are handled by the separate `fork-gate` job (fork-gate mode) where the job's check_run name itself satisfies the required check.
+As a courtesy, the `main-gate` job (main-gate mode) writes an aggregated commit status (`automerge-gate/all-passed`) so the status appears next to other commit statuses in the PR UI. Fork PRs are handled by the separate `fork-gate` job (fork-gate mode) where the job's check_run name itself satisfies the required check.
 
 ### Fork PRs
 
@@ -49,7 +49,7 @@ GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate
 ```mermaid
 flowchart TD
     PR[PR opened / synchronize / reopened / auto_merge_enabled] --> Q{head.repo.id == base.repo.id?}
-    Q -->|same-repo PR| Gate[gate job<br/>mode: commit-status<br/>writes the aggregated commit status]
+    Q -->|same-repo PR| Gate[main-gate job<br/>mode: main-gate<br/>writes the aggregated commit status]
     Q -->|fork PR| ForkGate[fork-gate job<br/>name: automerge-gate/all-passed<br/>mode: fork-gate, no status write]
     Gate --> Done[automerge-gate/all-passed satisfied<br/>by commit status]
     ForkGate --> Done2[automerge-gate/all-passed satisfied<br/>by job's check_run conclusion]
@@ -63,7 +63,7 @@ Note: GitHub rulesets only support AND across required checks (no OR / condition
 
 ### 1. Add the workflow
 
-Create `.github/workflows/automerge-gate.yaml` in your repository. The workflow uses a 2-job pattern with an `if:` mutex so exactly one of `gate` / `fork-gate` runs per PR:
+Create `.github/workflows/automerge-gate.yaml` in your repository. The workflow uses a 2-job pattern with an `if:` mutex so exactly one of `main-gate` / `fork-gate` runs per PR:
 
 ```yaml
 name: automerge-gate
@@ -77,7 +77,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gate:
+  main-gate:
     # Same-repo PR: the token has `statuses: write`, so the action writes
     # the aggregated commit status (`automerge-gate/all-passed`) directly.
     if: github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
@@ -94,6 +94,7 @@ jobs:
     steps:
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
+          mode: main-gate
           context: 'automerge-gate/all-passed'   # must match the required check in your ruleset
 
   fork-gate:
@@ -118,12 +119,12 @@ jobs:
 
 Why two jobs:
 
-- The `if:` condition `head.repo.id == base.repo.id` is a mutex — exactly one of `gate` / `fork-gate` runs per PR. The other is skipped, and skipped jobs do not block required checks.
-- The `gate` job (commit-status mode) writes the aggregated status. Same-repo PRs have a full-permission `GITHUB_TOKEN`, so the write succeeds.
+- The `if:` condition `head.repo.id == base.repo.id` is a mutex — exactly one of `main-gate` / `fork-gate` runs per PR. The other is skipped, and skipped jobs do not block required checks.
+- The `main-gate` job (main-gate mode) writes the aggregated status. Same-repo PRs have a full-permission `GITHUB_TOKEN`, so the write succeeds.
 - The `fork-gate` job (fork-gate mode) has its `name:` set to `automerge-gate/all-passed`. GitHub names the check_run after the job, so the required check is satisfied by the job's check_run conclusion directly — no token write needed.
 - Putting both in a single job with the same name as the status would produce duplicate entries in the PR UI (`status` + `check_run`), which makes the required-check evaluation ambiguous. Splitting on `if:` keeps each PR with exactly one signal of the right kind.
 
-`ignore-apps` / `ignore-checks` などの optional inputs は [Inputs](#inputs) を参照してください。
+See [Inputs](#inputs) for optional inputs like `ignore-apps` / `ignore-checks`.
 
 ### 2. Register the required check + allow auto-merge
 
@@ -154,32 +155,40 @@ On any PR you want to ship:
 | `poll-interval-seconds` | no | `30` | How often to re-fetch check status |
 | `ignore-apps` | no | (empty) | GitHub App slugs to exclude. Comma-separated **or newline-separated** |
 | `ignore-checks` | no | (empty) | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated** |
-| `mode` | no | `commit-status` | `commit-status` / `fork-gate`. `commit-status` writes the aggregated commit status. `fork-gate` skips the status write entirely so the gate is the job's check_run conclusion (used by the fork-gate job whose `name:` matches the required check). |
+| `mode` | **yes** | (none) | `main-gate` / `fork-gate`. `main-gate` writes the aggregated commit status (used by the `main-gate` job for same-repo PRs). `fork-gate` skips the status write entirely so the gate is the job's check_run conclusion (used by the `fork-gate` job whose `name:` matches the required check, for fork PRs with read-only token). |
 | `token` | no | `${{ github.token }}` | GitHub token used to read checks and (when permitted) write commit status |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
 
 ### Examples
 
+`ignore-checks` matches against the GitHub API's `check_run.name`, which is `jobs.<key>.name` (or `jobs.<key>` if `name:` is omitted). It is **not** the `<workflow> / <job>` string the GitHub UI shows. Inspect the actual values with:
+
+```bash
+gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
+  --jq '.check_runs[] | {name, app: .app.slug, conclusion}'
+```
+
 **Exclude specific GitHub Apps from aggregation:**
 
 ```yaml
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
+          mode: main-gate
           ignore-apps: |
             dependabot
             renovate
 ```
 
-**Exclude check_runs by glob (matches across path separators like `ci / lint`):**
+**Exclude check_runs by glob:**
 
 ```yaml
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
+          mode: main-gate
           ignore-checks: |
             optional-*
             docs-only
-            ci / lint
 ```
 
 `ignore-apps` / `ignore-checks` accept either comma-separated values (`a,b,c`) or one entry per line via the YAML `|` block scalar.
@@ -189,21 +198,9 @@ There is **no `timeout-seconds` input on purpose** — timeout is delegated enti
 ```yaml
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
+          mode: main-gate
           poll-interval-seconds: '10'
 ```
-
-**`mode: fork-gate` (fork-gate job):**
-
-```yaml
-  fork-gate:
-    if: github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
-    name: automerge-gate/all-passed
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: pkgdeps/automerge-gate@v2.0.0
-        with:
-          mode: fork-gate
 ```
 
 In `fork` mode the action never writes a commit status; the gate is the job's own check_run conclusion, which is named after the job (`automerge-gate/all-passed` here) and matches the required check in your ruleset.

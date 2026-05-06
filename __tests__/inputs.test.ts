@@ -5,7 +5,7 @@ const raw = (override: Partial<RawInputs> = {}): RawInputs => ({
   context: 'automerge-gate/all-passed',
   ignoreApps: '',
   ignoreChecks: '',
-  mode: 'commit-status',
+  mode: 'main-gate',
   token: 'tok',
   pollIntervalSeconds: '30',
   ...override
@@ -50,10 +50,8 @@ describe('parseInputs', () => {
     )
   })
 
-  it("accepts mode = 'commit-status' or 'fork-gate'", () => {
-    expect(parseInputs(raw({ mode: 'commit-status' })).mode).toBe(
-      'commit-status'
-    )
+  it("accepts mode = 'main-gate' or 'fork-gate'", () => {
+    expect(parseInputs(raw({ mode: 'main-gate' })).mode).toBe('main-gate')
     expect(parseInputs(raw({ mode: 'fork-gate' })).mode).toBe('fork-gate')
   })
 
