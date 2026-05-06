@@ -24329,7 +24329,7 @@ var buildPendingOutput = (reason) => ({
 var buildPollingOutput = (state, stats, reason) => {
   const title = state === "success" ? "All checks passed" : "At least one check failed";
   const headline = state === "success" ? `All ${stats.evaluated} evaluated checks passed.` : `${stats.evaluated} evaluated checks include at least one failure.`;
-  const summary2 = [
+  const summary3 = [
     headline,
     "",
     "| Field | Value |",
@@ -24341,7 +24341,7 @@ var buildPollingOutput = (state, stats, reason) => {
     "",
     `**Trigger:** ${reason}`
   ].join("\n");
-  return { title, summary: summary2 };
+  return { title, summary: summary3 };
 };
 var writeSummary = async (input) => {
   const stateEmoji = input.state === "success" ? "\u2705" : input.state === "failure" ? "\u274C" : "\u{1F7E1}";
@@ -24546,6 +24546,19 @@ var runPublic = async (deps, inputs) => {
     )
   });
   core4.endGroup();
+  const stateEmoji = result.state === "success" ? "\u2705" : result.state === "failure" ? "\u274C" : "\u{1F7E1}";
+  await core4.summary.addHeading(`${stateEmoji} automerge-gate: ${result.state}`).addTable([
+    [
+      { data: "Field", header: true },
+      { data: "Value", header: true }
+    ],
+    ["gate-mode", "public"],
+    ["state", result.state],
+    ["total checks (pre-filter)", String(lastTotal)],
+    ["evaluated checks (post-filter)", String(lastEvaluated)],
+    ["completed checks", String(lastCompleted)],
+    ["polling iterations", String(result.iterations)]
+  ]).write();
   core4.setOutput("state", result.state);
   core4.setOutput("total-checks", String(lastTotal));
   core4.setOutput("evaluated-checks", String(lastEvaluated));

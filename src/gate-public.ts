@@ -62,6 +62,28 @@ export const runPublic = async (
   })
   core.endGroup()
 
+  // Step summary mirrors gate-private's shape so users with mixed
+  // private/public repos see consistent output in $GITHUB_STEP_SUMMARY.
+  // Public mode has no skip path, so the state set here is exactly
+  // what `pollUntilComplete` returned.
+  const stateEmoji =
+    result.state === 'success' ? '✅' : result.state === 'failure' ? '❌' : '🟡'
+  await core.summary
+    .addHeading(`${stateEmoji} automerge-gate: ${result.state}`)
+    .addTable([
+      [
+        { data: 'Field', header: true },
+        { data: 'Value', header: true }
+      ],
+      ['gate-mode', 'public'],
+      ['state', result.state],
+      ['total checks (pre-filter)', String(lastTotal)],
+      ['evaluated checks (post-filter)', String(lastEvaluated)],
+      ['completed checks', String(lastCompleted)],
+      ['polling iterations', String(result.iterations)]
+    ])
+    .write()
+
   core.setOutput('state', result.state)
   core.setOutput('total-checks', String(lastTotal))
   core.setOutput('evaluated-checks', String(lastEvaluated))

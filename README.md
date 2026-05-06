@@ -14,35 +14,76 @@ automerge-gate replaces that list with **one aggregated check**. You register on
 
 ## How it works
 
+automerge-gate ships in two modes, with different gate-signal mechanics. Pick the one that matches your repository's fork-PR posture (see [Usage](#usage) for the trade-offs).
+
+### Private mode
+
+Cost-optimized: PRs without merge intent skip polling so runner minutes are saved. The action writes the aggregated check_run via the Checks API.
+
 ```mermaid
 sequenceDiagram
     participant U as Maintainer
+    participant A as automerge-gate (action)
     participant PR as Pull Request
 
     U->>PR: open / push
+    Note over A: action skips (no merge intent)
     Note over PR: required check at "Expected — Waiting for status to be reported" → merge blocked
 
-    U->>PR: click "Enable Auto Merge"
-    Note over PR: gate workflow polls every check on the PR
+    U->>PR: Enable Auto Merge (or write-permission Approve)
+    A->>PR: pre-write queued check_run (UX during polling)
+    A->>A: poll every other check on the PR
 
     alt all checks pass
-        Note over PR: required check → success
+        A->>PR: write aggregated check_run → success
         PR->>PR: GitHub auto-merge → merged
     else any check fails
-        Note over PR: required check → failure (merge blocked)
+        A->>PR: write aggregated check_run → failure
+        Note over PR: merge blocked
     end
 ```
 
-1. A PR is merge-blocked from the moment it's opened. The action does not write a check_run yet, so the required check sits at GitHub's default `Expected — Waiting for status to be reported`, which keeps the PR blocked.
-2. When merge intent is signalled — the maintainer clicks **Enable Auto Merge**, *or* a reviewer with write access submits an **Approve** review — the gate job polls every check on the PR.
-3. The verdict reaches the required check via one of two paths, depending on configuration:
-   - **private** (cost-optimized): the action writes the aggregated check_run with `conclusion: success` / `failure`.
-   - **public** (fork-aware): the gate job's own check_run conclusion (the job is named after the required check) is the signal.
-4. GitHub's native auto-merge merges the PR as soon as the required check turns green.
+1. A PR is opened. There's no merge intent yet, so the action skips without writing a check_run. The required check stays at GitHub's default `Expected — Waiting for status to be reported`, which keeps the PR blocked.
+2. The maintainer clicks **Enable Auto Merge**, *or* a reviewer with write access submits an **Approve** review. The action enters polling mode and pre-writes a queued `automerge-gate` check_run so the PR Checks list shows the gate is in progress (without this, the row would stay at the generic "Expected" message for the entire polling window — minutes, with no indication anything is running).
+3. The action polls every other check on the PR, applying any `ignore-apps` / `ignore-checks` filters.
+4. After polling, the action writes the aggregated verdict (`conclusion: success` or `failure`) onto the same check_run.
+5. GitHub's native auto-merge fires when the required check turns green.
 
-If Auto Merge is already enabled when you push a new commit, the gate re-evaluates the new SHA automatically — no need to disable→enable.
+If Auto Merge is already enabled when you push a new commit, the gate re-evaluates the new SHA automatically — no need to disable→enable. The previous SHA's queued check_run is patched to `cancelled` so the PR Commits tab doesn't accumulate yellow-dot rows.
 
 Teams whose Approve culture is "LGTM, but not necessarily merge now" can drop `pull_request_review` from the workflow's `on:` to disable the Approve trigger; the workflow YAML is the toggle.
+
+### Public mode
+
+Fork-aware: `GITHUB_TOKEN` is read-only on fork PRs, so the gate signal is the gate **job's** own auto-created check_run conclusion. The job runs on every triggering event and always polls; there is no skip path.
+
+```mermaid
+sequenceDiagram
+    participant PR as Pull Request
+    participant J as gate job
+    participant A as automerge-gate (action)
+
+    PR->>J: workflow triggered (always)
+    Note over J: job's check_run = required-check context (job name matches)
+    J->>A: action starts → polls every other check on the PR
+
+    alt all checks pass
+        A->>J: exit 0
+        J->>PR: job's check_run → success
+        PR->>PR: GitHub auto-merge → merged
+    else any check fails
+        A->>J: exit non-zero
+        J->>PR: job's check_run → failure
+        Note over PR: merge blocked
+    end
+```
+
+1. The PR is opened (or pushed to). The workflow always triggers. GitHub Actions auto-creates a check_run named after the gate job (e.g. `automerge-gate/all-passed`) — that check_run *is* the required-check signal.
+2. The action polls every other check on the PR, applying any `ignore-apps` / `ignore-checks` filters.
+3. After polling, the action exits 0 (success) or non-zero (failure). The job's check_run conclusion follows the exit code, and GitHub treats it as the required check's verdict.
+4. GitHub's native auto-merge fires when the required check turns green.
+
+The action does not write its own check_run in this mode (the JOB's auto-created one is the gate). Read-only `checks: read` permission is sufficient.
 
 Note: GitHub rulesets only support AND across required checks (no OR / conditional logic), so this action is the place where "all of these checks across workflows must pass" is expressed as a single check.
 

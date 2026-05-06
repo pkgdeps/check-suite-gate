@@ -20,14 +20,22 @@ import { hasActiveApproval } from './review-status.js'
 const ZERO_SHA = '0000000000000000000000000000000000000000'
 
 // Output shown when the gate's aggregated check_run is in a non-terminal
-// state. Used in two places in the polling path:
+// (queued / pending) state. Used in two places in the private-mode
+// polling path:
 //
-//   1. The queued pre-write before polling starts (issue #17 hotfix), so
-//      the gate's own check_run is the latest entry in the suite from
-//      the very first moment.
-//   2. The post-polling write when `pollResult.state === 'pending'` —
-//      which only happens if polling ends without a terminal state
-//      (e.g. the job hits its timeout-minutes ceiling).
+//   1. The queued pre-write before polling starts. Polling can take
+//      minutes, and without this write the required-check context is
+//      unreported on the head SHA — GitHub renders "Expected — Waiting
+//      for status to be reported" with no indication the gate is
+//      actively running. The pre-write inserts a `Queued —
+//      automerge-gate` row in the PR Checks list so the maintainer
+//      sees the gate is in progress; the post-polling write replaces
+//      it with the actual verdict.
+//   2. A type-defensive fallback for the post-polling write when
+//      `pollResult.state === 'pending'`. `pollUntilComplete` is typed
+//      to return `success | failure | pending`, but in the current
+//      code path it only ever exits as terminal — pending here would
+//      only occur if the contract changed.
 //
 // The title is what GitHub renders inline in the PR merge box (e.g.
 // "Queued — Waiting for Approve or Enable auto-merge"), so it must be
@@ -200,21 +208,27 @@ export const runPrivate = async (
   // mode === 'polling'
 
   // Pre-write a queued check_run BEFORE polling starts.
-  // Without this, on a same-repo PR with the 2-job mutex pattern, the
-  // skipped fork-gate job's auto-created check_run (named to match the
-  // required-check context) lands in the auto_merge_enabled run's suite
-  // *immediately* and becomes the "latest" entry for that name. GitHub
-  // treats `conclusion: skipped` as passing, so the required check is
-  // satisfied prematurely and auto-merge fires before this run's
-  // polling has even started — even if a real check is failing.
   //
-  // Writing a queued check_run here ensures the action's check_run is
-  // the latest (largest id) entry in the suite at all times during
-  // polling: skipped → queued → completed/success-or-failure. The
-  // queued state is non-terminal, so GitHub blocks merge until the
-  // post-polling write replaces it with the actual verdict.
+  // Polling can take minutes (it has no internal timeout — it waits
+  // for every check on the PR to reach a terminal state). Without this
+  // pre-write, the required-check context is unreported on the head
+  // SHA during the entire polling window, and GitHub renders
+  // "Expected — Waiting for status to be reported" — visually
+  // indistinguishable from a state where the gate workflow never
+  // triggered. The maintainer can't tell whether the gate is running
+  // or stuck.
   //
-  // See https://github.com/pkgdeps/automerge-gate/issues/17.
+  // The pre-write inserts a `Queued — automerge-gate` row in the PR
+  // Checks list so the maintainer sees the gate is actively in
+  // progress. `status: queued` is non-terminal, so GitHub keeps merge
+  // blocked until the post-polling write below replaces it with the
+  // actual `success` / `failure` verdict.
+  //
+  // (Historically — see lessons/2026-05-06-check-run-pending-state-mapping.md
+  // §4 — the pre-write also closed a v2-era race where a sibling job's
+  // skipped check_run could land first as "latest" in the suite. That
+  // race is structurally gone in v3's single-job pattern, but the
+  // UX-during-polling reason above keeps the pre-write in place.)
   await writeCheckRun(octokit, {
     owner,
     repo,

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import * as core from '@actions/core'
 import { server } from './_msw/server.js'
@@ -7,7 +7,18 @@ import { runPublic } from '../src/gate-public.js'
 
 const BASE = 'https://api.github.com'
 
+// `runPublic` calls `core.summary.write()` which appends to
+// $GITHUB_STEP_SUMMARY. We don't care about the actual file output here;
+// stubbing the chained API to no-op keeps the tests hermetic.
+const stubCoreSummary = (): void => {
+  vi.spyOn(core.summary, 'write').mockResolvedValue(core.summary)
+}
+
 describe('runPublic', () => {
+  beforeEach(() => {
+    stubCoreSummary()
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
   })

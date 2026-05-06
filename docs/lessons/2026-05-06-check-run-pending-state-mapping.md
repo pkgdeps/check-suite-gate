@@ -184,19 +184,27 @@ polling中は latest = main-gate queued (非terminal = blocked)。 polling後は
 
 fork-gate の場合、 JOB自身が gate (= JOB起動時に check_run が in_progress として作られ、 終了時に conclusion 確定)。 同じ suite 内に同名の他 check_run が無いので race の窓がない。 fix は `inputs.gate === 'main'` 限定なので fork-gate には影響しない。
 
-## 5. v3 単一 job pattern で §4 hotfix が不要になる
+## 5. v3 単一 job pattern で §4 race は構造的に消えるが、 polling 前 pre-write は別の理由で残る
 
-§4 の queued pre-write hotfix (v2.1.0) は **v2 の 2-job mutex pattern (`main-gate` / `fork-gate`)** が race の構造的原因だったため必要になった対症療法だった。 v3 では構成自体を 1 job に整理し直したので、 race の窓そのものが消え、 hotfix は不要になる。
+§4 の queued pre-write は **v2 の 2-job mutex pattern (`main-gate` / `fork-gate`)** で skipped fork-gate の check_run が "latest" を保持する race を塞ぐための hotfix だった。 v3 では構成を 1 job に整理し直したので、 同名 check_run が複数 job から書かれる前提が成立せず、 race そのものが構造的に消える。
 
 詳細仕様は [docs/superpowers/specs/2026-05-06-v3-single-job-design.md](../superpowers/specs/2026-05-06-v3-single-job-design.md) を参照。
 
-### 変わった点
+### v3 で構造的に消えた点
 
-- **構成を 2 example に分離**: private (cost-optimized) / public (fork-aware)。 同名 check_run を複数 job が触りに行く構造を排除。 race の構造的撤廃。
-- **pending check_run write を廃止**: merge意図がない event (`synchronize` 等) では何も write せず、 GitHub default の `Expected — Waiting for status to be reported` に任せる。 §1 で採用した `status: queued` の write も merge意図あり時のみ。 user 視点の merge block 挙動は変わらず、 API write が 1 回減る。
+- **構成を 2 example に分離**: private (cost-optimized) / public (fork-aware)。 同名 check_run を複数 job が触りに行く構造を排除。 race の窓そのものが消滅。
 - **input rename を hard break で実施**: `gate: main | fork` → `gate-mode: 'private' | 'public'`。 alias は提供せず、 v2 の値が来たら startup で error。 v2 の race を抱えた構成に逆戻りする path を完全に閉じる。
+- **skip path で API write を発行しない**: merge意図がない event (`synchronize` 等) では action が check_run を書かず、 GitHub default の `Expected — Waiting for status to be reported` に任せる。 user 視点の merge block 挙動は変わらず、 API write が 1 回減る。
 
-§4 の hotfix logic (`mode === 'polling'` で polling 前に pending writeCheckRun) は v3 では存在意義がない。 single job では「他 job が先に landing する」 という前提自体が成立しないため、 polling 前の pre-write で「 latest を確保する」 という対策が無意味になる。 src/gate-private.ts はこの pre-write を持たない。
+### polling 前 pre-write は v3 でも残す (理由が変わる)
+
+`src/gate-private.ts` の polling path は **polling 開始前に `status: queued` の check_run を pre-write する** ロジックを保持している。 これは §4 の race 対策ではない (race はもう構造的に存在しない) が、 別の UX 上の理由で必要になる:
+
+- polling は内部 timeout を持たず、 全 check が completed になるまで待つ。 数分かかる場合がある。
+- pre-write が無いと、 polling 中の数分間は head SHA に対する required-check context が一切無い状態になり、 PR Checks UI には GitHub default の `Expected — Waiting for status to be reported` だけが表示される。 maintainer から見ると「gate が動いているのか、 そもそも triggered されていないのか」 が区別できない。
+- pre-write を残すことで、 polling 中は `Queued — automerge-gate` 行が PR Checks に表示され、 「gate は走っていて、 結論待ち」 と一目で分かる。 polling 完了後の write が queued を最終 verdict (success/failure) に置き換える。
+
+つまり v3 の pre-write は **race 対策から UX 的な進行表示** に役割を変えて残っている。 §4 で書いた hotfix logic 自体は同じ shape (`writeCheckRun` with `status: queued` before `pollUntilComplete`) だが、 動機が「同名 check_run の latest を確保する」 から「polling 中の進行を maintainer に見せる」 にシフトした。
 
 ## 関連
 
