@@ -19735,10 +19735,10 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       (0, command_1.issueCommand)("error", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
     exports2.error = error;
-    function warning5(message, properties = {}) {
+    function warning4(message, properties = {}) {
       (0, command_1.issueCommand)("warning", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
-    exports2.warning = warning5;
+    exports2.warning = warning4;
     function notice(message, properties = {}) {
       (0, command_1.issueCommand)("notice", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
@@ -24086,84 +24086,29 @@ var pollUntilComplete = async (fetchRuns, options) => {
   }
 };
 
-// src/check-run.ts
+// src/commit-status.ts
 var core = __toESM(require_core());
 var buildTargetUrl = (input) => `${input.serverUrl}/${input.repository}/actions/runs/${input.runId}/attempts/${input.runAttempt}`;
-var CHECK_RUN_EXTERNAL_ID = "automerge-gate";
-var stateToCheckRunFields = (state) => {
-  if (state === "pending") return { status: "queued" };
-  return { status: "completed", conclusion: state };
-};
-var writeCheckRun = async (octokit, input, retryOptions = {
+var writeCommitStatus = async (octokit, input, retryOptions = {
   retries: 3,
   baseDelayMs: 500
 }) => {
-  const { owner, repo, sha, state, name, output, details_url } = input;
-  const { status, conclusion } = stateToCheckRunFields(state);
+  const { owner, repo, sha, state, context: context2, description, target_url } = input;
   core.info(
-    `writeCheckRun: POST check-runs name=${name} sha=${sha} status=${status} conclusion=${conclusion ?? "-"}`
+    `writeCommitStatus: POST statuses sha=${sha} state=${state} context=${context2}`
   );
-  const result = await withRetry(
-    () => octokit.rest.checks.create({
+  await withRetry(
+    () => octokit.rest.repos.createCommitStatus({
       owner,
       repo,
-      name,
-      head_sha: sha,
-      status,
-      conclusion,
-      external_id: CHECK_RUN_EXTERNAL_ID,
-      output,
-      details_url
+      sha,
+      state,
+      context: context2,
+      description,
+      target_url
     }),
     retryOptions
   );
-  const data = result?.data;
-  if (data !== void 0) {
-    core.info(
-      `writeCheckRun: created check_run id=${data.id} suite_id=${data.check_suite?.id} status=${data.status} conclusion=${data.conclusion ?? "-"} url=${data.html_url ?? "-"}`
-    );
-  } else {
-    core.warning(
-      "writeCheckRun: API returned no data field \u2014 unable to confirm check_run id / suite assignment"
-    );
-  }
-};
-var markCheckRunStale = async (octokit, input, retryOptions = {
-  retries: 3,
-  baseDelayMs: 500
-}) => {
-  const { owner, repo, sha, name } = input;
-  const list = await withRetry(
-    () => octokit.rest.checks.listForRef({
-      owner,
-      repo,
-      ref: sha,
-      check_name: name,
-      per_page: 100
-    }),
-    retryOptions
-  );
-  const ours = list.data.check_runs.filter(
-    (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
-  );
-  core.info(
-    `markCheckRunStale: sha=${sha} found ${ours.length} matching check_run(s) with our external_id (out of ${list.data.check_runs.length} listed by name)`
-  );
-  for (const run2 of ours) {
-    core.info(
-      `markCheckRunStale: PATCH check_run id=${run2.id} \u2192 conclusion: cancelled`
-    );
-    await withRetry(
-      () => octokit.rest.checks.update({
-        owner,
-        repo,
-        check_run_id: run2.id,
-        status: "completed",
-        conclusion: "cancelled"
-      }),
-      retryOptions
-    );
-  }
 };
 
 // src/mode.ts
@@ -24312,24 +24257,6 @@ var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = 
 };
 
 // src/gate-private.ts
-var ZERO_SHA = "0000000000000000000000000000000000000000";
-var buildPollingOutput = (state, stats, reason) => {
-  const title = state === "success" ? "All checks passed" : "At least one check failed";
-  const headline = state === "success" ? `All ${stats.evaluated} evaluated checks passed.` : `${stats.evaluated} evaluated checks include at least one failure.`;
-  const summary3 = [
-    headline,
-    "",
-    "| Field | Value |",
-    "|---|---|",
-    `| Total (pre-filter) | ${stats.total} |`,
-    `| Evaluated (post-filter) | ${stats.evaluated} |`,
-    `| Completed | ${stats.completed} |`,
-    `| Polling iterations | ${stats.iterations} |`,
-    "",
-    `**Trigger:** ${reason}`
-  ].join("\n");
-  return { title, summary: summary3 };
-};
 var writeSummary = async (input) => {
   const stateEmoji = input.state === "success" ? "\u2705" : input.state === "failure" ? "\u274C" : "\u{1F7E1}";
   await core3.summary.addHeading(`${stateEmoji} automerge-gate: ${input.state}`).addTable([
@@ -24347,7 +24274,7 @@ var writeSummary = async (input) => {
 };
 var runPrivate = async (deps, inputs) => {
   const { octokit, context: context2, env } = deps;
-  const { eventName, action, pr, reviewState, before, owner, repo } = context2;
+  const { eventName, action, pr, reviewState, owner, repo } = context2;
   const { runId, runAttempt, serverUrl, repository, workflowRef } = env;
   core3.startGroup("Setup");
   core3.info(`Event: ${eventName} (action=${action})`);
@@ -24382,16 +24309,6 @@ var runPrivate = async (deps, inputs) => {
       iterations: 0
     });
     return;
-  }
-  if (action === "synchronize") {
-    if (before !== void 0 && before !== ZERO_SHA && before !== sha) {
-      await markCheckRunStale(octokit, {
-        owner,
-        repo,
-        sha: before,
-        name: inputs.context
-      });
-    }
   }
   let lastTotal = 0;
   let lastEvaluated = 0;
@@ -24448,23 +24365,15 @@ var runPrivate = async (deps, inputs) => {
     );
     return;
   }
-  await writeCheckRun(octokit, {
+  const description = pollResult.state === "success" ? `${lastEvaluated} checks passed` : `${lastEvaluated} checks evaluated, at least one failed`;
+  await writeCommitStatus(octokit, {
     owner,
     repo,
     sha,
     state: pollResult.state,
-    name: inputs.context,
-    output: buildPollingOutput(
-      pollResult.state,
-      {
-        total: lastTotal,
-        evaluated: lastEvaluated,
-        completed: lastCompleted,
-        iterations: pollResult.iterations
-      },
-      reason
-    ),
-    details_url: targetUrl
+    context: inputs.context,
+    description: description.slice(0, 140),
+    target_url: targetUrl
   });
   core3.setOutput("state", pollResult.state);
   core3.setOutput("total-checks", String(lastTotal));

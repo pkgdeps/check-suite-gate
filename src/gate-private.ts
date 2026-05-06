@@ -8,49 +8,9 @@ import {
   parseCurrentWorkflowPath
 } from './self-exclusion.js'
 import { pollUntilComplete } from './polling.js'
-import {
-  buildTargetUrl,
-  writeCheckRun,
-  markCheckRunStale,
-  type CheckRunOutput
-} from './check-run.js'
+import { buildTargetUrl, writeCommitStatus } from './commit-status.js'
 import { determineMode, isHeadShaAction } from './mode.js'
 import { hasActiveApproval } from './review-status.js'
-
-const ZERO_SHA = '0000000000000000000000000000000000000000'
-
-type PollingStats = {
-  total: number
-  evaluated: number
-  completed: number
-  iterations: number
-}
-
-export const buildPollingOutput = (
-  state: 'success' | 'failure',
-  stats: PollingStats,
-  reason: string
-): CheckRunOutput => {
-  const title =
-    state === 'success' ? 'All checks passed' : 'At least one check failed'
-  const headline =
-    state === 'success'
-      ? `All ${stats.evaluated} evaluated checks passed.`
-      : `${stats.evaluated} evaluated checks include at least one failure.`
-  const summary = [
-    headline,
-    '',
-    '| Field | Value |',
-    '|---|---|',
-    `| Total (pre-filter) | ${stats.total} |`,
-    `| Evaluated (post-filter) | ${stats.evaluated} |`,
-    `| Completed | ${stats.completed} |`,
-    `| Polling iterations | ${stats.iterations} |`,
-    '',
-    `**Trigger:** ${reason}`
-  ].join('\n')
-  return { title, summary }
-}
 
 type SummaryInput = {
   state: string
@@ -86,7 +46,7 @@ export const runPrivate = async (
   inputs: ParsedInputs
 ): Promise<void> => {
   const { octokit, context, env } = deps
-  const { eventName, action, pr, reviewState, before, owner, repo } = context
+  const { eventName, action, pr, reviewState, owner, repo } = context
   const { runId, runAttempt, serverUrl, repository, workflowRef } = env
 
   core.startGroup('Setup')
@@ -151,22 +111,6 @@ export const runPrivate = async (
     return
   }
 
-  // Mark the aggregated check_run on the previous HEAD SHA as stale, so
-  // the PR's Commits tab doesn't accumulate yellow-dot queued entries
-  // for every superseded push. Only synchronize carries `before`; opened
-  // / reopened / auto_merge_enabled don't bring a previous SHA we'd
-  // need to clean up.
-  if (action === 'synchronize') {
-    if (before !== undefined && before !== ZERO_SHA && before !== sha) {
-      await markCheckRunStale(octokit, {
-        owner,
-        repo,
-        sha: before,
-        name: inputs.context
-      })
-    }
-  }
-
   // mode === 'polling'
 
   let lastTotal = 0
@@ -201,10 +145,11 @@ export const runPrivate = async (
   }
 
   // Polling has no internal timeout. The job's timeout-minutes will kill
-  // this run if checks take too long; on timeout no aggregate check_run
-  // gets written, and the required-check context is reported by GitHub
-  // as the default `Expected — Waiting for status to be reported` until
-  // the next push or `auto_merge_enabled` event re-triggers the gate.
+  // this run if checks take too long; on timeout no aggregate commit
+  // status gets written, and the required-check context is reported by
+  // GitHub as the default `Expected — Waiting for status to be reported`
+  // until the next push or `auto_merge_enabled` event re-triggers the
+  // gate.
   core.startGroup('Polling')
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
@@ -229,7 +174,7 @@ export const runPrivate = async (
   // returns when the aggregated state is terminal (`success` / `failure`).
   // The `pending` branch is unreachable at runtime; this narrows the type
   // so the post-polling write below can pass `pollResult.state` to
-  // `buildPollingOutput` (which expects `'success' | 'failure'`) without
+  // `writeCommitStatus` (which expects `'success' | 'failure'`) without
   // a cast, and surfaces any future contract regression as an explicit
   // failure rather than an incoherent write.
   if (pollResult.state === 'pending') {
@@ -242,23 +187,22 @@ export const runPrivate = async (
     return
   }
 
-  await writeCheckRun(octokit, {
+  // Commit status `description` is shown inline in the PR Checks UI and
+  // is capped at 140 characters by GitHub. Keep it short and slice
+  // defensively in case future inputs blow past the limit.
+  const description =
+    pollResult.state === 'success'
+      ? `${lastEvaluated} checks passed`
+      : `${lastEvaluated} checks evaluated, at least one failed`
+
+  await writeCommitStatus(octokit, {
     owner,
     repo,
     sha,
     state: pollResult.state,
-    name: inputs.context,
-    output: buildPollingOutput(
-      pollResult.state,
-      {
-        total: lastTotal,
-        evaluated: lastEvaluated,
-        completed: lastCompleted,
-        iterations: pollResult.iterations
-      },
-      reason
-    ),
-    details_url: targetUrl
+    context: inputs.context,
+    description: description.slice(0, 140),
+    target_url: targetUrl
   })
 
   core.setOutput('state', pollResult.state)
@@ -276,11 +220,10 @@ export const runPrivate = async (
     iterations: pollResult.iterations
   })
 
-  // Gating: the gate job's check_run conclusion is what GitHub's required
-  // check evaluates (when the workflow's job is named to match the
-  // required check context). On aggregated failure, fail the job so the
-  // check_run becomes "failure"; on success, return normally so the
-  // check_run becomes "success".
+  // Gating: the gate job's commit status conclusion is what GitHub's
+  // required check evaluates. On aggregated failure, fail the job so the
+  // workflow run is marked failed; the commit status itself is already
+  // `failure` from the write above.
   if (pollResult.state === 'failure') {
     core.setFailed(
       `automerge-gate: aggregated state is failure (${lastEvaluated} checks evaluated)`
