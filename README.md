@@ -1,8 +1,16 @@
 # automerge-gate
 
-A GitHub Action that aggregates all check_run results on the same commit into a single commit status, started by the maintainer pressing **"Enable Auto Merge"** on a pull request. Once aggregated to green, GitHub's native auto-merge fires and merges the PR.
+A single required status check that gates **Enable Auto Merge** on every CI run that lands on a PR.
 
-This is the successor to [`pkgdeps/check-suite-gate`](https://github.com/pkgdeps/check-suite-gate) (v1, archived). The v1 design used `check_suite.completed` as the trigger but was blocked by GitHub's recursion guard for that event in repos that only run GitHub Actions. v2 switches to `pull_request.auto_merge_enabled`, which has no recursion guard, and adds a polling loop bounded by the workflow job's `timeout-minutes`.
+## Why
+
+GitHub's branch protection / rulesets ask you to list each required status check by name. That list is fragile:
+
+- Renovate / Dependabot bring in checks from external GitHub Apps that come and go.
+- Monorepos use path filters, so a workflow may be skipped on some PRs and present on others.
+- Adding a new workflow file means rewriting the ruleset.
+
+automerge-gate replaces that list with **one aggregated commit status**. You register only that single status as a required check. When a maintainer clicks Enable Auto Merge, the action waits for every check on the PR — across workflow files, across GitHub Apps — then flips its status to green once they all pass. GitHub's native auto-merge takes the PR from there.
 
 ## How it works
 
