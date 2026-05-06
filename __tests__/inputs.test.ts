@@ -7,7 +7,6 @@ const raw = (override: Partial<RawInputs> = {}): RawInputs => ({
   ignoreChecks: '',
   token: 'tok',
   pollIntervalSeconds: '30',
-  forkPolicy: 'skip',
   ...override
 })
 
@@ -48,19 +47,5 @@ describe('parseInputs', () => {
     expect(() => parseInputs(raw({ pollIntervalSeconds: '-5' }))).toThrow(
       /poll-interval-seconds/
     )
-  })
-
-  it('accepts fork-policy = "skip" or "success"', () => {
-    expect(parseInputs(raw({ forkPolicy: 'skip' })).forkPolicy).toBe('skip')
-    expect(parseInputs(raw({ forkPolicy: 'success' })).forkPolicy).toBe(
-      'success'
-    )
-  })
-
-  it('throws on invalid fork-policy', () => {
-    expect(() => parseInputs(raw({ forkPolicy: 'maybe' }))).toThrow(
-      /fork-policy/
-    )
-    expect(() => parseInputs(raw({ forkPolicy: '' }))).toThrow(/fork-policy/)
   })
 })

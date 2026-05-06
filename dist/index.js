@@ -23907,12 +23907,6 @@ var parsePositiveInt = (raw, name) => {
   }
   return n;
 };
-var parseForkPolicy = (raw) => {
-  if (raw === "skip" || raw === "success") return raw;
-  throw new Error(
-    `input \`fork-policy\` must be "skip" or "success" (got: "${raw}")`
-  );
-};
 var parseInputs = (raw) => {
   if (raw.token.trim().length === 0) {
     throw new Error("input `token` must not be empty");
@@ -23925,8 +23919,7 @@ var parseInputs = (raw) => {
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
       "poll-interval-seconds"
-    ),
-    forkPolicy: parseForkPolicy(raw.forkPolicy)
+    )
   };
 };
 
@@ -24122,14 +24115,28 @@ var writeSummary = async (input) => {
     ["polling iterations", String(input.iterations)]
   ]).write();
 };
+var tryWriteCommitStatus = async (octokit, input) => {
+  try {
+    await writeCommitStatus(octokit, input);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isPermissionError = /\b403\b/.test(message) || /Resource not accessible by integration/i.test(message);
+    if (isPermissionError) {
+      core.warning(
+        "Status write skipped (token lacks statuses:write \u2014 common on fork PRs). Falling back to job exit-code gating."
+      );
+      return;
+    }
+    throw err;
+  }
+};
 var run = async () => {
   const inputs = parseInputs({
     context: core.getInput("context"),
     ignoreApps: core.getInput("ignore-apps"),
     ignoreChecks: core.getInput("ignore-checks"),
     token: core.getInput("token"),
-    pollIntervalSeconds: core.getInput("poll-interval-seconds"),
-    forkPolicy: core.getInput("fork-policy")
+    pollIntervalSeconds: core.getInput("poll-interval-seconds")
   });
   const ctx = github.context;
   if (ctx.eventName !== "pull_request") {
@@ -24159,60 +24166,6 @@ var run = async () => {
     runAttempt
   });
   const octokit = github.getOctokit(inputs.token);
-  const baseRepoId = pr.base.repo.id;
-  const headRepo = pr.head.repo;
-  const isFork = headRepo == null || headRepo.id !== baseRepoId;
-  if (isFork) {
-    core.info(
-      `Fork PR detected (head_repo.id=${headRepo?.id ?? "null"} \u2260 base_repo.id=${baseRepoId}); fork-policy=${inputs.forkPolicy}`
-    );
-    core.endGroup();
-    if (inputs.forkPolicy === "skip") {
-      core.info(
-        "Fork PR detected; skipping (no status written) per fork-policy=skip."
-      );
-      core.setOutput("state", "skipped");
-      core.setOutput("total-checks", "0");
-      core.setOutput("evaluated-checks", "0");
-      core.setOutput("completed-checks", "0");
-      core.setOutput("polled-iterations", "0");
-      await writeSummary({
-        state: "skipped",
-        mode: "fork-skip",
-        total: 0,
-        evaluated: 0,
-        completed: 0,
-        iterations: 0
-      });
-      return;
-    }
-    core.info(
-      "Fork PR detected; writing success status per fork-policy=success."
-    );
-    await writeCommitStatus(octokit, {
-      owner: ctx.repo.owner,
-      repo: ctx.repo.repo,
-      sha,
-      state: "success",
-      context: inputs.context,
-      description: "Fork PR: gating delegated to other required checks",
-      target_url: targetUrl
-    });
-    core.setOutput("state", "success");
-    core.setOutput("total-checks", "0");
-    core.setOutput("evaluated-checks", "0");
-    core.setOutput("completed-checks", "0");
-    core.setOutput("polled-iterations", "0");
-    await writeSummary({
-      state: "success",
-      mode: "fork-success",
-      total: 0,
-      evaluated: 0,
-      completed: 0,
-      iterations: 0
-    });
-    return;
-  }
   const mode = determineMode({
     action,
     isHeadShaEvent: isHeadShaAction(action),
@@ -24233,7 +24186,7 @@ var run = async () => {
     return;
   }
   if (mode === "pending") {
-    await writeCommitStatus(octokit, {
+    await tryWriteCommitStatus(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
       sha,
@@ -24315,7 +24268,7 @@ var run = async () => {
   );
   core.endGroup();
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`;
-  await writeCommitStatus(octokit, {
+  await tryWriteCommitStatus(octokit, {
     owner: ctx.repo.owner,
     repo: ctx.repo.repo,
     sha,
@@ -24337,6 +24290,11 @@ var run = async () => {
     completed: lastCompleted,
     iterations: pollResult.iterations
   });
+  if (pollResult.state === "failure") {
+    core.setFailed(
+      `automerge-gate: aggregated state is failure (${lastEvaluated} checks evaluated)`
+    );
+  }
 };
 run().catch((err) => {
   if (err instanceof Error) {
