@@ -85,22 +85,28 @@ const run = async (): Promise<void> => {
   let lastCompleted = 0
 
   const fetchRuns = async () => {
-    const allRuns = await fetchAllCheckRuns(
-      octokit,
-      ctx.repo.owner,
-      ctx.repo.repo,
-      sha
-    )
-    lastTotal = allRuns.length
-    const afterFilters = applyFilters(
-      allRuns,
-      inputs.ignoreApps,
-      inputs.ignoreChecks
-    )
-    const afterSelf = excludeOwnRuns(afterFilters, runId)
-    lastEvaluated = afterSelf.length
-    lastCompleted = afterSelf.filter((r) => r.status === 'completed').length
-    return afterSelf
+    try {
+      const allRuns = await fetchAllCheckRuns(
+        octokit,
+        ctx.repo.owner,
+        ctx.repo.repo,
+        sha
+      )
+      lastTotal = allRuns.length
+      const afterFilters = applyFilters(
+        allRuns,
+        inputs.ignoreApps,
+        inputs.ignoreChecks
+      )
+      const afterSelf = excludeOwnRuns(afterFilters, runId)
+      lastEvaluated = afterSelf.length
+      lastCompleted = afterSelf.filter((r) => r.status === 'completed').length
+      return afterSelf
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      core.warning(`API fetch failed during polling (will retry): ${message}`)
+      throw err
+    }
   }
 
   // Polling has no internal timeout. The job's timeout-minutes will kill

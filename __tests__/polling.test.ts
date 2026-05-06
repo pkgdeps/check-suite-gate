@@ -62,4 +62,19 @@ describe('pollUntilComplete', () => {
     expect(result.state).toBe('success')
     expect(capturedSize).toBe(1)
   })
+
+  it('tolerates fetchRuns errors and continues polling', async () => {
+    const fetchRuns = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('transient API error'))
+      .mockResolvedValueOnce([
+        make({ status: 'in_progress', conclusion: null })
+      ])
+      .mockRejectedValueOnce({ status: 503 })
+      .mockResolvedValueOnce([make({ conclusion: 'success' })])
+    const result = await pollUntilComplete(fetchRuns, opts)
+    expect(result.state).toBe('success')
+    expect(result.iterations).toBe(4)
+    expect(fetchRuns).toHaveBeenCalledTimes(4)
+  })
 })

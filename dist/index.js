@@ -24016,10 +24016,13 @@ var pollUntilComplete = async (fetchRuns, options) => {
   let iterations = 0;
   while (true) {
     iterations++;
-    const runs = await fetchRuns();
-    const result = aggregate(runs);
-    if (result.state !== "pending") {
-      return { state: result.state, iterations };
+    try {
+      const runs = await fetchRuns();
+      const result = aggregate(runs);
+      if (result.state !== "pending") {
+        return { state: result.state, iterations };
+      }
+    } catch {
     }
     await sleep(intervalMs);
   }
@@ -24097,22 +24100,28 @@ var run = async () => {
   let lastEvaluated = 0;
   let lastCompleted = 0;
   const fetchRuns = async () => {
-    const allRuns = await fetchAllCheckRuns(
-      octokit,
-      ctx.repo.owner,
-      ctx.repo.repo,
-      sha
-    );
-    lastTotal = allRuns.length;
-    const afterFilters = applyFilters(
-      allRuns,
-      inputs.ignoreApps,
-      inputs.ignoreChecks
-    );
-    const afterSelf = excludeOwnRuns(afterFilters, runId);
-    lastEvaluated = afterSelf.length;
-    lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
-    return afterSelf;
+    try {
+      const allRuns = await fetchAllCheckRuns(
+        octokit,
+        ctx.repo.owner,
+        ctx.repo.repo,
+        sha
+      );
+      lastTotal = allRuns.length;
+      const afterFilters = applyFilters(
+        allRuns,
+        inputs.ignoreApps,
+        inputs.ignoreChecks
+      );
+      const afterSelf = excludeOwnRuns(afterFilters, runId);
+      lastEvaluated = afterSelf.length;
+      lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
+      return afterSelf;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      core.warning(`API fetch failed during polling (will retry): ${message}`);
+      throw err;
+    }
   };
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds

@@ -30,11 +30,18 @@ export const pollUntilComplete = async (
   let iterations = 0
   while (true) {
     iterations++
-    const runs = await fetchRuns()
-    const result = aggregate(runs)
+    try {
+      const runs = await fetchRuns()
+      const result = aggregate(runs)
 
-    if (result.state !== 'pending') {
-      return { state: result.state, iterations }
+      if (result.state !== 'pending') {
+        return { state: result.state, iterations }
+      }
+    } catch {
+      // Treat any fetchRuns error as transient — sleep and retry next iteration.
+      // Persistent errors will eventually be bounded by the workflow job's
+      // `timeout-minutes`. Logging happens in the caller's fetchRuns closure
+      // (so the action can use @actions/core, which polling.ts does not import).
     }
 
     await sleep(intervalMs)
