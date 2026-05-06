@@ -24,6 +24,24 @@ type HeadShaAction = (typeof HEAD_SHA_ACTIONS)[number]
 const isHeadShaAction = (a: string): a is HeadShaAction =>
   (HEAD_SHA_ACTIONS as readonly string[]).includes(a)
 
+// Mutually exclusive modes the action can run in for a given pull_request event.
+//   polling — poll the Checks API and write the aggregated status when done.
+//   pending — write a pending status with "Awaiting Auto Merge enable" and exit.
+//   skip    — do nothing for unsupported activity types.
+type ActionMode = 'polling' | 'pending' | 'skip'
+
+const determineMode = (
+  action: string,
+  isHeadShaEvent: boolean,
+  isAutoMergeAlreadyEnabled: boolean
+): ActionMode => {
+  if (action === 'auto_merge_enabled') return 'polling'
+  if (isHeadShaEvent) {
+    return isAutoMergeAlreadyEnabled ? 'polling' : 'pending'
+  }
+  return 'skip'
+}
+
 const run = async (): Promise<void> => {
   const inputs = parseInputs({
     context: core.getInput('context'),
@@ -118,16 +136,18 @@ const run = async (): Promise<void> => {
   // the PR (e.g. a Renovate-style auto-merge-on-creation PR).
   // Pending mode: a new SHA landed but Auto Merge is not yet enabled. We
   // just mark the required check pending so the merge stays blocked.
-  const isAutoMergeAlreadyEnabled = pr.auto_merge !== null
-  const isHeadShaEvent = isHeadShaAction(action)
+  const mode: ActionMode = determineMode(
+    action,
+    isHeadShaAction(action),
+    pr.auto_merge !== null
+  )
 
-  const isPollingMode =
-    action === 'auto_merge_enabled' ||
-    (isHeadShaEvent && isAutoMergeAlreadyEnabled)
+  if (mode === 'skip') {
+    core.warning(`Skipping unsupported pull_request action: "${action}"`)
+    return
+  }
 
-  const isPendingMode = !isPollingMode && isHeadShaEvent
-
-  if (isPendingMode) {
+  if (mode === 'pending') {
     await writeCommitStatus(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
@@ -145,10 +165,7 @@ const run = async (): Promise<void> => {
     return
   }
 
-  if (!isPollingMode) {
-    core.warning(`Skipping unsupported pull_request action: "${action}"`)
-    return
-  }
+  // mode === 'polling'
 
   let lastTotal = 0
   let lastEvaluated = 0

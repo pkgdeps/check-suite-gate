@@ -24093,6 +24093,13 @@ var writeCommitStatus = async (octokit, input, retryOptions = {
 var PENDING_DESCRIPTION = "Awaiting Auto Merge enable";
 var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
 var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
+var determineMode = (action, isHeadShaEvent, isAutoMergeAlreadyEnabled) => {
+  if (action === "auto_merge_enabled") return "polling";
+  if (isHeadShaEvent) {
+    return isAutoMergeAlreadyEnabled ? "polling" : "pending";
+  }
+  return "skip";
+};
 var run = async () => {
   const inputs = parseInputs({
     context: core.getInput("context"),
@@ -24161,11 +24168,16 @@ var run = async () => {
     core.setOutput("polled-iterations", "0");
     return;
   }
-  const isAutoMergeAlreadyEnabled = pr.auto_merge !== null;
-  const isHeadShaEvent = isHeadShaAction(action);
-  const isPollingMode = action === "auto_merge_enabled" || isHeadShaEvent && isAutoMergeAlreadyEnabled;
-  const isPendingMode = !isPollingMode && isHeadShaEvent;
-  if (isPendingMode) {
+  const mode = determineMode(
+    action,
+    isHeadShaAction(action),
+    pr.auto_merge !== null
+  );
+  if (mode === "skip") {
+    core.warning(`Skipping unsupported pull_request action: "${action}"`);
+    return;
+  }
+  if (mode === "pending") {
     await writeCommitStatus(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
@@ -24180,10 +24192,6 @@ var run = async () => {
     core.setOutput("evaluated-checks", "0");
     core.setOutput("completed-checks", "0");
     core.setOutput("polled-iterations", "0");
-    return;
-  }
-  if (!isPollingMode) {
-    core.warning(`Skipping unsupported pull_request action: "${action}"`);
     return;
   }
   let lastTotal = 0;
