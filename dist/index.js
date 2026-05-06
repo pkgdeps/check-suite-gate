@@ -17581,12 +17581,12 @@ var require_lib = __commonJS({
             throw new Error("Client has already been disposed.");
           }
           const parsedUrl = new URL(requestUrl);
-          let info4 = this._prepareRequest(verb, parsedUrl, headers);
+          let info5 = this._prepareRequest(verb, parsedUrl, headers);
           const maxTries = this._allowRetries && RetryableHttpVerbs.includes(verb) ? this._maxRetries + 1 : 1;
           let numTries = 0;
           let response;
           do {
-            response = yield this.requestRaw(info4, data);
+            response = yield this.requestRaw(info5, data);
             if (response && response.message && response.message.statusCode === HttpCodes.Unauthorized) {
               let authenticationHandler;
               for (const handler of this.handlers) {
@@ -17596,7 +17596,7 @@ var require_lib = __commonJS({
                 }
               }
               if (authenticationHandler) {
-                return authenticationHandler.handleAuthentication(this, info4, data);
+                return authenticationHandler.handleAuthentication(this, info5, data);
               } else {
                 return response;
               }
@@ -17619,8 +17619,8 @@ var require_lib = __commonJS({
                   }
                 }
               }
-              info4 = this._prepareRequest(verb, parsedRedirectUrl, headers);
-              response = yield this.requestRaw(info4, data);
+              info5 = this._prepareRequest(verb, parsedRedirectUrl, headers);
+              response = yield this.requestRaw(info5, data);
               redirectsRemaining--;
             }
             if (!response.message.statusCode || !HttpResponseRetryCodes.includes(response.message.statusCode)) {
@@ -17649,7 +17649,7 @@ var require_lib = __commonJS({
        * @param info
        * @param data
        */
-      requestRaw(info4, data) {
+      requestRaw(info5, data) {
         return __awaiter(this, void 0, void 0, function* () {
           return new Promise((resolve, reject) => {
             function callbackForResult(err, res) {
@@ -17661,7 +17661,7 @@ var require_lib = __commonJS({
                 resolve(res);
               }
             }
-            this.requestRawWithCallback(info4, data, callbackForResult);
+            this.requestRawWithCallback(info5, data, callbackForResult);
           });
         });
       }
@@ -17671,12 +17671,12 @@ var require_lib = __commonJS({
        * @param data
        * @param onResult
        */
-      requestRawWithCallback(info4, data, onResult) {
+      requestRawWithCallback(info5, data, onResult) {
         if (typeof data === "string") {
-          if (!info4.options.headers) {
-            info4.options.headers = {};
+          if (!info5.options.headers) {
+            info5.options.headers = {};
           }
-          info4.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
+          info5.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
         }
         let callbackCalled = false;
         function handleResult(err, res) {
@@ -17685,7 +17685,7 @@ var require_lib = __commonJS({
             onResult(err, res);
           }
         }
-        const req = info4.httpModule.request(info4.options, (msg) => {
+        const req = info5.httpModule.request(info5.options, (msg) => {
           const res = new HttpClientResponse(msg);
           handleResult(void 0, res);
         });
@@ -17697,7 +17697,7 @@ var require_lib = __commonJS({
           if (socket) {
             socket.end();
           }
-          handleResult(new Error(`Request timeout: ${info4.options.path}`));
+          handleResult(new Error(`Request timeout: ${info5.options.path}`));
         });
         req.on("error", function(err) {
           handleResult(err);
@@ -17733,27 +17733,27 @@ var require_lib = __commonJS({
         return this._getProxyAgentDispatcher(parsedUrl, proxyUrl);
       }
       _prepareRequest(method, requestUrl, headers) {
-        const info4 = {};
-        info4.parsedUrl = requestUrl;
-        const usingSsl = info4.parsedUrl.protocol === "https:";
-        info4.httpModule = usingSsl ? https : http;
+        const info5 = {};
+        info5.parsedUrl = requestUrl;
+        const usingSsl = info5.parsedUrl.protocol === "https:";
+        info5.httpModule = usingSsl ? https : http;
         const defaultPort = usingSsl ? 443 : 80;
-        info4.options = {};
-        info4.options.host = info4.parsedUrl.hostname;
-        info4.options.port = info4.parsedUrl.port ? parseInt(info4.parsedUrl.port) : defaultPort;
-        info4.options.path = (info4.parsedUrl.pathname || "") + (info4.parsedUrl.search || "");
-        info4.options.method = method;
-        info4.options.headers = this._mergeHeaders(headers);
+        info5.options = {};
+        info5.options.host = info5.parsedUrl.hostname;
+        info5.options.port = info5.parsedUrl.port ? parseInt(info5.parsedUrl.port) : defaultPort;
+        info5.options.path = (info5.parsedUrl.pathname || "") + (info5.parsedUrl.search || "");
+        info5.options.method = method;
+        info5.options.headers = this._mergeHeaders(headers);
         if (this.userAgent != null) {
-          info4.options.headers["user-agent"] = this.userAgent;
+          info5.options.headers["user-agent"] = this.userAgent;
         }
-        info4.options.agent = this._getAgent(info4.parsedUrl);
+        info5.options.agent = this._getAgent(info5.parsedUrl);
         if (this.handlers) {
           for (const handler of this.handlers) {
-            handler.prepareRequest(info4.options);
+            handler.prepareRequest(info5.options);
           }
         }
-        return info4;
+        return info5;
       }
       _mergeHeaders(headers) {
         if (this.requestOptions && this.requestOptions.headers) {
@@ -19705,7 +19705,7 @@ var require_core = __commonJS({
 Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
     }
     exports2.getBooleanInput = getBooleanInput;
-    function setOutput2(name, value) {
+    function setOutput3(name, value) {
       const filePath = process.env["GITHUB_OUTPUT"] || "";
       if (filePath) {
         return (0, file_command_1.issueFileCommand)("OUTPUT", (0, file_command_1.prepareKeyValueMessage)(name, value));
@@ -19713,16 +19713,16 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       process.stdout.write(os.EOL);
       (0, command_1.issueCommand)("set-output", { name }, (0, utils_1.toCommandValue)(value));
     }
-    exports2.setOutput = setOutput2;
+    exports2.setOutput = setOutput3;
     function setCommandEcho(enabled) {
       (0, command_1.issue)("echo", enabled ? "on" : "off");
     }
     exports2.setCommandEcho = setCommandEcho;
-    function setFailed2(message) {
+    function setFailed4(message) {
       process.exitCode = ExitCode.Failure;
       error(message);
     }
-    exports2.setFailed = setFailed2;
+    exports2.setFailed = setFailed4;
     function isDebug() {
       return process.env["RUNNER_DEBUG"] === "1";
     }
@@ -19735,34 +19735,34 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       (0, command_1.issueCommand)("error", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
     exports2.error = error;
-    function warning3(message, properties = {}) {
+    function warning5(message, properties = {}) {
       (0, command_1.issueCommand)("warning", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
-    exports2.warning = warning3;
+    exports2.warning = warning5;
     function notice(message, properties = {}) {
       (0, command_1.issueCommand)("notice", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
     exports2.notice = notice;
-    function info4(message) {
+    function info5(message) {
       process.stdout.write(message + os.EOL);
     }
-    exports2.info = info4;
-    function startGroup2(name) {
+    exports2.info = info5;
+    function startGroup3(name) {
       (0, command_1.issue)("group", name);
     }
-    exports2.startGroup = startGroup2;
-    function endGroup2() {
+    exports2.startGroup = startGroup3;
+    function endGroup3() {
       (0, command_1.issue)("endgroup");
     }
-    exports2.endGroup = endGroup2;
+    exports2.endGroup = endGroup3;
     function group(name, fn) {
       return __awaiter(this, void 0, void 0, function* () {
-        startGroup2(name);
+        startGroup3(name);
         let result;
         try {
           result = yield fn();
         } finally {
-          endGroup2();
+          endGroup3();
         }
         return result;
       });
@@ -23878,7 +23878,7 @@ var require_github = __commonJS({
 });
 
 // src/index.ts
-var core3 = __toESM(require_core());
+var core5 = __toESM(require_core());
 var github = __toESM(require_github());
 
 // src/filter.ts
@@ -23907,9 +23907,11 @@ var parsePositiveInt = (raw, name) => {
   }
   return n;
 };
-var parseGate = (raw) => {
-  if (raw === "main" || raw === "fork") return raw;
-  throw new Error(`input \`gate\` must be "main" or "fork" (got: "${raw}")`);
+var parseGateMode = (raw) => {
+  if (raw === "private" || raw === "public") return raw;
+  throw new Error(
+    `input \`gate-mode\` must be "private" or "public" (got: "${raw}"). If migrating from v2: gate: main \u2192 gate-mode: private, gate: fork \u2192 gate-mode: public.`
+  );
 };
 var parseInputs = (raw) => {
   if (raw.token.trim().length === 0) {
@@ -23919,7 +23921,7 @@ var parseInputs = (raw) => {
     context: raw.context,
     ignoreApps: parseList(raw.ignoreApps),
     ignoreChecks: parseList(raw.ignoreChecks),
-    gate: parseGate(raw.gate),
+    gateMode: parseGateMode(raw.gateMode),
     token: raw.token,
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
@@ -23927,6 +23929,9 @@ var parseInputs = (raw) => {
     )
   };
 };
+
+// src/gate-private.ts
+var core3 = __toESM(require_core());
 
 // src/api.ts
 var fetchAllCheckRuns = async (octokit, owner, repo, sha) => {
@@ -24222,8 +24227,8 @@ var determineMode = (input) => {
       };
     }
     return {
-      mode: "pending",
-      reason: `new HEAD landed (action=${action}); waiting for merge intent (Enable auto-merge or an Approve review)`
+      mode: "skip",
+      reason: `new HEAD landed (action=${action}); no merge intent (auto-merge off, no active Approve)`
     };
   }
   return {
@@ -24306,7 +24311,7 @@ var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = 
   return false;
 };
 
-// src/index.ts
+// src/gate-private.ts
 var ZERO_SHA = "0000000000000000000000000000000000000000";
 var buildPendingOutput = (reason) => ({
   title: "Waiting for Approve or Enable auto-merge",
@@ -24353,52 +24358,25 @@ var writeSummary = async (input) => {
     ["polling iterations", String(input.iterations)]
   ]).write();
 };
-var run = async () => {
-  const inputs = parseInputs({
-    context: core3.getInput("context"),
-    ignoreApps: core3.getInput("ignore-apps"),
-    ignoreChecks: core3.getInput("ignore-checks"),
-    gate: core3.getInput("gate"),
-    token: core3.getInput("token"),
-    pollIntervalSeconds: core3.getInput("poll-interval-seconds")
-  });
-  const ctx = github.context;
-  const SUPPORTED_EVENTS = ["pull_request", "pull_request_review"];
-  if (!SUPPORTED_EVENTS.includes(ctx.eventName)) {
-    core3.warning(
-      `automerge-gate only handles pull_request / pull_request_review events; got "${ctx.eventName}". Skipping.`
-    );
-    return;
-  }
-  const action = ctx.payload.action ?? "";
-  const pr = ctx.payload.pull_request;
-  if (pr === void 0) {
-    core3.setFailed("pull_request payload is missing");
-    return;
-  }
-  const reviewState = ctx.eventName === "pull_request_review" ? parseReviewState(
-    ctx.payload.review?.state
-  ) : null;
+var runPrivate = async (deps, inputs) => {
+  const { octokit, context: context2, env } = deps;
+  const { eventName, action, pr, reviewState, before, owner, repo } = context2;
+  const { runId, runAttempt, serverUrl, repository, workflowRef } = env;
   core3.startGroup("Setup");
-  core3.info(`Event: ${ctx.eventName} (action=${action})`);
+  core3.info(`Event: ${eventName} (action=${action})`);
   core3.info(`PR #${pr.number}, head SHA ${pr.head.sha}`);
   const sha = pr.head.sha;
-  const runId = Number.parseInt(process.env.GITHUB_RUN_ID ?? "0", 10);
-  const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10);
-  const serverUrl = process.env.GITHUB_SERVER_URL ?? "https://github.com";
-  const repository = process.env.GITHUB_REPOSITORY ?? `${ctx.repo.owner}/${ctx.repo.repo}`;
   const targetUrl = buildTargetUrl({
     serverUrl,
     repository,
     runId,
     runAttempt
   });
-  const octokit = github.getOctokit(inputs.token);
   const isHeadShaEvent = isHeadShaAction(action);
-  const needsApprovalLookup = isHeadShaEvent && pr.auto_merge === null || ctx.eventName === "pull_request_review";
-  const isApproved = needsApprovalLookup ? await hasActiveApproval(octokit, ctx.repo.owner, ctx.repo.repo, pr.number) : false;
+  const needsApprovalLookup = isHeadShaEvent && pr.auto_merge === null || eventName === "pull_request_review";
+  const isApproved = needsApprovalLookup ? await hasActiveApproval(octokit, owner, repo, pr.number) : false;
   const { mode, reason } = determineMode({
-    eventName: ctx.eventName,
+    eventName,
     action,
     reviewState,
     isHeadShaEvent,
@@ -24418,74 +24396,33 @@ var run = async () => {
     });
     return;
   }
-  if (inputs.gate === "main" && action === "synchronize") {
-    const before = ctx.payload.before;
+  if (action === "synchronize") {
     if (before !== void 0 && before !== ZERO_SHA && before !== sha) {
       await markCheckRunStale(octokit, {
-        owner: ctx.repo.owner,
-        repo: ctx.repo.repo,
+        owner,
+        repo,
         sha: before,
         name: inputs.context
       });
     }
   }
-  if (mode === "pending") {
-    if (inputs.gate === "main") {
-      await writeCheckRun(octokit, {
-        owner: ctx.repo.owner,
-        repo: ctx.repo.repo,
-        sha,
-        state: "pending",
-        name: inputs.context,
-        output: buildPendingOutput(reason),
-        details_url: targetUrl
-      });
-    }
-    core3.setOutput("state", "pending");
-    core3.setOutput("total-checks", "0");
-    core3.setOutput("evaluated-checks", "0");
-    core3.setOutput("completed-checks", "0");
-    core3.setOutput("polled-iterations", "0");
-    await writeSummary({
-      state: "pending",
-      mode: "pending",
-      total: 0,
-      evaluated: 0,
-      completed: 0,
-      iterations: 0
-    });
-    return;
-  }
-  if (inputs.gate === "main") {
-    await writeCheckRun(octokit, {
-      owner: ctx.repo.owner,
-      repo: ctx.repo.repo,
-      sha,
-      state: "pending",
-      name: inputs.context,
-      output: buildPendingOutput(reason),
-      details_url: targetUrl
-    });
-  }
+  await writeCheckRun(octokit, {
+    owner,
+    repo,
+    sha,
+    state: "pending",
+    name: inputs.context,
+    output: buildPendingOutput(reason),
+    details_url: targetUrl
+  });
   let lastTotal = 0;
   let lastEvaluated = 0;
   let lastCompleted = 0;
-  const currentWorkflowPath = parseCurrentWorkflowPath(
-    process.env.GITHUB_WORKFLOW_REF
-  );
-  const lookupWorkflowPath = createWorkflowPathLookup(
-    octokit,
-    ctx.repo.owner,
-    ctx.repo.repo
-  );
+  const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef);
+  const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo);
   const fetchRuns = async () => {
     try {
-      const allRuns = await fetchAllCheckRuns(
-        octokit,
-        ctx.repo.owner,
-        ctx.repo.repo,
-        sha
-      );
+      const allRuns = await fetchAllCheckRuns(octokit, owner, repo, sha);
       lastTotal = allRuns.length;
       const afterFilters = applyFilters(
         allRuns,
@@ -24524,27 +24461,25 @@ var run = async () => {
     `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
   );
   core3.endGroup();
-  if (inputs.gate === "main") {
-    const pollingOutput = pollResult.state === "pending" ? buildPendingOutput(reason) : buildPollingOutput(
-      pollResult.state,
-      {
-        total: lastTotal,
-        evaluated: lastEvaluated,
-        completed: lastCompleted,
-        iterations: pollResult.iterations
-      },
-      reason
-    );
-    await writeCheckRun(octokit, {
-      owner: ctx.repo.owner,
-      repo: ctx.repo.repo,
-      sha,
-      state: pollResult.state,
-      name: inputs.context,
-      output: pollingOutput,
-      details_url: targetUrl
-    });
-  }
+  const pollingOutput = pollResult.state === "pending" ? buildPendingOutput(reason) : buildPollingOutput(
+    pollResult.state,
+    {
+      total: lastTotal,
+      evaluated: lastEvaluated,
+      completed: lastCompleted,
+      iterations: pollResult.iterations
+    },
+    reason
+  );
+  await writeCheckRun(octokit, {
+    owner,
+    repo,
+    sha,
+    state: pollResult.state,
+    name: inputs.context,
+    output: pollingOutput,
+    details_url: targetUrl
+  });
   core3.setOutput("state", pollResult.state);
   core3.setOutput("total-checks", String(lastTotal));
   core3.setOutput("evaluated-checks", String(lastEvaluated));
@@ -24564,11 +24499,129 @@ var run = async () => {
     );
   }
 };
+
+// src/gate-public.ts
+var core4 = __toESM(require_core());
+var runPublic = async (deps, inputs) => {
+  const { octokit, context: context2, env } = deps;
+  const sha = context2.pr.head.sha;
+  let lastTotal = 0;
+  let lastEvaluated = 0;
+  let lastCompleted = 0;
+  const currentWorkflowPath = parseCurrentWorkflowPath(env.workflowRef);
+  const lookupWorkflowPath = createWorkflowPathLookup(
+    octokit,
+    context2.owner,
+    context2.repo
+  );
+  const fetchRuns = async () => {
+    try {
+      const all = await fetchAllCheckRuns(
+        octokit,
+        context2.owner,
+        context2.repo,
+        sha
+      );
+      lastTotal = all.length;
+      const filtered = applyFilters(all, inputs.ignoreApps, inputs.ignoreChecks);
+      const afterSelf = await excludeOwnWorkflowRuns(
+        filtered,
+        currentWorkflowPath,
+        lookupWorkflowPath
+      );
+      lastEvaluated = afterSelf.length;
+      lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
+      return afterSelf;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      core4.warning(`API fetch failed during polling (will retry): ${message}`);
+      throw err;
+    }
+  };
+  core4.startGroup("Polling");
+  const result = await pollUntilComplete(fetchRuns, {
+    intervalSeconds: inputs.pollIntervalSeconds,
+    onIteration: (s) => core4.info(
+      `Poll #${s.iteration}: state=${s.state}, ${s.completed}/${s.total} completed`
+    )
+  });
+  core4.endGroup();
+  core4.setOutput("state", result.state);
+  core4.setOutput("total-checks", String(lastTotal));
+  core4.setOutput("evaluated-checks", String(lastEvaluated));
+  core4.setOutput("completed-checks", String(lastCompleted));
+  core4.setOutput("polled-iterations", String(result.iterations));
+  if (result.state === "failure") {
+    core4.setFailed(
+      `aggregated state is failure (${lastEvaluated} checks evaluated)`
+    );
+  } else if (result.state === "pending") {
+    core4.setFailed("polling exited with pending state \u2014 unexpected");
+  }
+};
+
+// src/index.ts
+var SUPPORTED_EVENTS = ["pull_request", "pull_request_review"];
+var buildContext = () => {
+  const ctx = github.context;
+  if (!SUPPORTED_EVENTS.includes(ctx.eventName)) {
+    core5.warning(
+      `automerge-gate only handles pull_request / pull_request_review events; got "${ctx.eventName}". Skipping.`
+    );
+    return null;
+  }
+  const action = ctx.payload.action ?? "";
+  const pr = ctx.payload.pull_request;
+  if (pr === void 0) {
+    core5.setFailed("pull_request payload is missing");
+    return null;
+  }
+  const reviewState = ctx.eventName === "pull_request_review" ? parseReviewState(
+    ctx.payload.review?.state
+  ) : null;
+  const before = ctx.payload.before;
+  return {
+    eventName: ctx.eventName,
+    action,
+    pr,
+    reviewState,
+    before,
+    owner: ctx.repo.owner,
+    repo: ctx.repo.repo
+  };
+};
+var buildEnv = () => ({
+  runId: Number.parseInt(process.env.GITHUB_RUN_ID ?? "0", 10),
+  runAttempt: Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10),
+  serverUrl: process.env.GITHUB_SERVER_URL ?? "https://github.com",
+  repository: process.env.GITHUB_REPOSITORY ?? `${github.context.repo.owner}/${github.context.repo.repo}`,
+  workflowRef: process.env.GITHUB_WORKFLOW_REF
+});
+var run = async () => {
+  const inputs = parseInputs({
+    context: core5.getInput("context"),
+    ignoreApps: core5.getInput("ignore-apps"),
+    ignoreChecks: core5.getInput("ignore-checks"),
+    gateMode: core5.getInput("gate-mode"),
+    token: core5.getInput("token"),
+    pollIntervalSeconds: core5.getInput("poll-interval-seconds")
+  });
+  const context2 = buildContext();
+  if (context2 === null) return;
+  const env = buildEnv();
+  const octokit = github.getOctokit(inputs.token);
+  const deps = { octokit, context: context2, env };
+  if (inputs.gateMode === "private") {
+    await runPrivate(deps, inputs);
+  } else {
+    await runPublic(deps, inputs);
+  }
+};
 run().catch((err) => {
   if (err instanceof Error) {
-    core3.setFailed(err.message);
+    core5.setFailed(err.message);
   } else {
-    core3.setFailed(String(err));
+    core5.setFailed(String(err));
   }
 });
 /*! Bundled license information:
