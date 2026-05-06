@@ -30,7 +30,7 @@ sequenceDiagram
     Note over A: action skips (no merge intent)
     Note over PR: required check at "Expected — Waiting for status to be reported" → merge blocked
 
-    U->>PR: Enable Auto Merge (or write-permission Approve)
+    U->>PR: Enable Auto Merge or Approve
     A->>PR: pre-write queued check_run (UX during polling)
     A->>A: poll every other check on the PR
 
