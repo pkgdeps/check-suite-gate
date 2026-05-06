@@ -27,7 +27,7 @@ v2 では起点を `pull_request.auto_merge_enabled` に切り替え、 polling 
 - **GitHub 純正 auto-merge と直結** (集約 status が緑なら自動 merge)
 - **GitHub Actions / 外部 GitHub App / legacy CI を区別なく集約**できる
 - **GitHub Actions 内で完結** (外部サーバー / GitHub App 不要)
-- **timeout 到達時の挙動を選択可能** (failure / pending)
+- **timeout は job レベルで制御** (`timeout-minutes`)。 action 内に独自 timeout 機構を持たず simple さを優先
 
 ## 非目標
 
@@ -64,10 +64,11 @@ Loop {
     完了済 → 集約評価 → commit status 書き込み → exit
     未完了あり → poll-interval-seconds 待機 → loop 継続
 }
-timeout-seconds 到達 → on-timeout に従って failure or pending を書き込み → exit
+job 自体の timeout-minutes 到達 → runner kill → commit status は最後に書かれた値 (pending) のまま残る
   ↓
 集約 status が success → GitHub 純正 auto-merge が即 merge
 集約 status が failure → auto-merge ブロック (maintainer 対処)
+集約 status が pending (polling 完了せず kill) → maintainer が disable→enable で再 trigger
 ```
 
 **pending モード**を別途持つ理由は、 PR の Checks UI に最初から `automerge-gate/all-passed - pending - Awaiting Auto Merge enable` を表示することで maintainer の action item を明示するため。 GitHub の required status check は context 名 identify で「一度も書かれていない context」 は missing 扱いになり、 UI から context が見えなくなる挙動を回避する。
@@ -113,7 +114,7 @@ jobs:
             ci / lint
 ```
 
-`timeout-seconds` / `poll-interval-seconds` / `on-timeout` はすべて optional で、 デフォルト値 (600 / 30 / failure) で問題ない場合は省略してよい。
+`poll-interval-seconds` は optional でデフォルト 30 秒。 polling 自体の timeout は持たず、 利用者が **job レベルの `timeout-minutes` (上記 10 分) で制御**する。 job timeout で runner が kill された場合、 commit status は最後に書かれた値 (pending モードで書いた pending) のまま残る。 maintainer は disable→enable で再 trigger するか、 別の対処をする。
 
 ### ruleset 側
 
@@ -179,14 +180,19 @@ GitHub Docs の「About status checks」 標準解釈を踏襲。 自前で再�
 
 ### polling timeout の挙動
 
-`timeout-seconds` (default 600 = 10 分) を超えても全 check が完了しなければ、 `on-timeout` 設定に従って終了:
+action 内には独自の timeout 機構を持たない。 利用者が job レベルの `timeout-minutes` を設定して、 runner レベルで polling が打ち切られる:
 
-- `on-timeout: failure` (default) — 集約 status を **failure** で書き込む。 GitHub 純正 auto-merge は failure を見て自動 merge を諦める。 maintainer は CI を再実行 / fix push / Auto Merge を解除して手動対処
-- `on-timeout: pending` — 集約 status を pending のまま放置 (新たに書き込まない)。 必要なら maintainer が disable→enable で再起動
+- 推奨 default: `timeout-minutes: 10` (CI が 10 分以内に終わる前提)
+- runner kill 時、 polling loop は中断され commit status は **最後に書かれた値のまま残る** (= pending モードで書いた pending のまま)
+- GitHub 純正 auto-merge は pending を見て merge を保留し続ける
+- maintainer の対処: Auto Merge を disable→enable して再 trigger、 もしくは fix push (= synchronize で pending mode が再起動)、 または required check 解除して手動 merge
 
-`timeout-seconds` は merge-gatekeeper / DataDog ensure-ci-success の慣習 (10 分前後) に揃える。 重い CI で足りない場合は input で延ばす。
+input で polling 内 timeout を持たない理由:
 
-利用者は job レベルの `timeout-minutes` も合わせて設定する。 `timeout-seconds` と同じ 10 分 (= `timeout-minutes: 10`) を default として推奨し、 action が timeout 到達時に on-timeout を書く処理 (数秒) は同じ 10 分 budget の中で完了する想定。 重い CI で延ばす場合は両方を揃えて変更する。
+- GitHub Actions が job の `timeout-minutes` を public に runtime 取得する API を持たないため、 「input で別途指定」 か「無制限 polling + job kill」 のどちらかになる
+- on-timeout=failure を確実に書くには post step が必要だが、 timeout で kill された job の post step は走らないため信頼性が低い (公式仕様)
+- 結果的に「pending のまま残す」 挙動を default として受け入れる方が design がシンプル
+- どうしても failure を書きたい場合は将来の input 追加で対応可 (v2 検討事項)
 
 ### 自分自身の除外
 
@@ -239,13 +245,13 @@ monorepo で path filter により workflow が skip された場合、 GitHub �
 
 | 名前 | 必須 | デフォルト | 説明 |
 |---|---|---|---|
-| `context` | no | `automerge-gate/all-passed` | 書き込む commit status の context 名 |
+| `context` | no | `automerge-gate/all-passed` | 書き込む commit status の context 名。 ruleset の required check と一致させる |
 | `poll-interval-seconds` | no | `30` | check 状態を再 fetch する間隔 (秒) |
-| `timeout-seconds` | no | `600` | 全 check 完了を待つ timeout (秒)、 デフォルト 10 分。 利用者の job レベル `timeout-minutes` も合わせて設定推奨 (例 `timeout-minutes: 10`) |
-| `on-timeout` | no | `failure` | timeout 到達時の挙動。 `failure` / `pending` |
 | `ignore-apps` | no | (空) | これらの App slug の check_run を集約から除外。 **カンマ区切りまたは改行区切り** (yaml の `|` block scalar 対応) |
 | `ignore-checks` | no | (空) | check_run name の glob (`*` / `?` 対応、 `/` 越え可) で除外。 **カンマ区切りまたは改行区切り** |
 | `token` | no | `${{ github.token }}` | API token |
+
+polling の timeout は input ではなく **job レベルの `timeout-minutes`** で制御する (利用者 yaml に必須で書く)。
 
 ### outputs
 
@@ -255,7 +261,7 @@ monorepo で path filter により workflow が skip された場合、 GitHub �
 | `total-checks` | 観測された check_run 総数 (フィルタ前) |
 | `evaluated-checks` | フィルタ後に評価対象となった check_run 数 |
 | `completed-checks` | completed だった check_run 数 |
-| `polled-iterations` | polling loop の繰り返し回数 (timeout 分析用) |
+| `polled-iterations` | polling loop の繰り返し回数 (job timeout 分析用、 pending モードでは 0) |
 
 ### 内部実装
 
@@ -291,7 +297,7 @@ permissions:
 
 - `src/aggregator.ts` — 通常モード / 救出モード分岐を削除し、 polling 用の単純な「全完了 + 緑/赤評価」 に
 - `src/status.ts` — `target_url` の組み立て対象を変える (pending 中は polling workflow run page に向ける)
-- `src/inputs.ts` — `parseList` を multiline 対応 (split 区切り文字を `,` だけから `[,\n]` に変更) + 新 input (`poll-interval-seconds` / `timeout-seconds` / `on-timeout`) の parse / 検証
+- `src/inputs.ts` — `parseList` を multiline 対応 (split 区切り文字を `,` だけから `[,\n]` に変更) + 新 input (`poll-interval-seconds`) の parse / 検証
 - `src/index.ts` — entry point の event 判定 (pending モード / polling モード) と polling loop を書き直す
 - `action.yml` — name / inputs / outputs を v2 に
 - `.github/workflows/test-self.yml` — `auto_merge_enabled` ベースに書き換え (新仕様で実 PR で dogfood する)
@@ -309,8 +315,6 @@ v1 と同じ。 `actions/typescript-action` template の `script/release` で ma
 集約ロジック / polling 制御を mock で網羅。 v1 既存テストに追加:
 
 - polling loop の正常系 (1 回目で全完了 / 数回 loop して全完了)
-- timeout 到達時に on-timeout=failure で failure 書き込み
-- timeout 到達時に on-timeout=pending で書き込み無し
 - poll 間隔の sleep (fake timer)
 - API 5xx 時の retry / 4xx 時の即時 throw
 
@@ -349,7 +353,7 @@ merge-gatekeeper のメンテ縮退・v1.2.0 同名 job バグの代替候補に
 
 DataDog 製の polling Action。 構造は merge-gatekeeper と類似。 同じく全 PR で polling する設計。
 
-automerge-gate は起動 trigger が `auto_merge_enabled` に絞られている点が異なる。 input 設計 (`poll-interval-seconds`, `timeout-seconds`, `on-timeout`) は ensure-ci-success / merge-gatekeeper の慣習を踏襲。
+automerge-gate は起動 trigger が `auto_merge_enabled` に絞られている点が異なる。 timeout は input ではなく job レベル `timeout-minutes` に委ねるため、 input 設計はより minimal (`poll-interval-seconds` 程度)。
 
 ### vs `re-actors/alls-green`
 
@@ -371,7 +375,7 @@ automerge-gate は `auto_merge_enabled` event に切り替えることで recurs
 
 ## 段階的な開発
 
-v1 では monorepo (private repo / fork PR なし) 用途に絞った最小実装でリリースする。 inputs は `context`, `poll-interval-seconds`, `timeout-seconds`, `on-timeout`, `ignore-apps`, `ignore-checks`, `token` の 7 個。 race / retry / 自己参照ループ防止 / polling loop は実装する。
+v1 では monorepo (private repo / fork PR なし) 用途に絞った最小実装でリリースする。 inputs は `context`, `poll-interval-seconds`, `ignore-apps`, `ignore-checks`, `token` の 5 個。 race / retry / 自己参照ループ防止 / polling loop は実装する。 timeout は job レベル `timeout-minutes` に委ねる。
 
 v2 で `pull_request.synchronize` 併用 (push されたら polling を再起動)、 fork PR 対応 (`pull_request_target` 連携)、 `merge_group` event 対応、 `required-apps` / `required-checks` の追加、 legacy status event のハンドリング、 dashboard 用 outputs 拡張を検討する。
 
@@ -381,7 +385,7 @@ v3 で Cloudflare Worker 版 webhook gate との互換 protocol を検討。
 
 - `pull_request.auto_merge_enabled` event の payload に必要な情報 (head_sha / pull_request.number) が含まれているか実測確認 (公式 docs では含まれている前提だが、 v1 で同じ前提を実測せず失敗した経緯があるため empirical に確認する)
 - polling 中に Auto Merge が disable された場合の挙動: gate は polling を継続するが、 集約 status が書かれた時点で GitHub 純正 auto-merge は動かない (期待通り)。 ただし API call が無駄になる可能性 → v2 で `pulls.get` を併用して auto_merge 状態を確認 → disable されていれば early-exit、 を検討
-- timeout 到達時に commit status が書き込まれた直後、 さらに別 event で再評価される仕組みが無い (v1 の救出モードに相当する機構が無い)。 timeout 後は maintainer が手動対処する前提
+- job timeout で kill された場合の commit status は pending のまま残る (v1 の救出モードに相当する自動 failure 書き込みは持たない)。 maintainer は disable→enable で再 trigger する手動対処前提。 「timeout 時に確実に failure を書きたい」 ニーズが見えた段階で v2 で input 追加を検討
 - self-hosting integration test が auto_merge_enabled で動くか実測確認 (v1 で dogfood が前提で動いたかを確認しなかった反省)
 
 ## 参考
