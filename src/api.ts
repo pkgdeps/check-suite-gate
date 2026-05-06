@@ -58,17 +58,25 @@ export const fetchAllCheckRuns = async (
   repo: string,
   sha: string
 ): Promise<AggregatedCheckRun[]> => {
-  const suites = await octokit.paginate<CheckSuiteData>(
-    octokit.rest.checks.listSuitesForRef as never,
-    { owner, repo, ref: sha, per_page: 100 }
+  const suites = await withRetry(
+    () =>
+      octokit.paginate<CheckSuiteData>(
+        octokit.rest.checks.listSuitesForRef as never,
+        { owner, repo, ref: sha, per_page: 100 }
+      ),
+    { retries: 3, baseDelayMs: 500 }
   )
 
   const runs: AggregatedCheckRun[] = []
   for (const suite of suites) {
     const slug = suite.app?.slug ?? 'unknown'
-    const suiteRuns = await octokit.paginate<CheckRunData>(
-      octokit.rest.checks.listForSuite as never,
-      { owner, repo, check_suite_id: suite.id, per_page: 100 }
+    const suiteRuns = await withRetry(
+      () =>
+        octokit.paginate<CheckRunData>(
+          octokit.rest.checks.listForSuite as never,
+          { owner, repo, check_suite_id: suite.id, per_page: 100 }
+        ),
+      { retries: 3, baseDelayMs: 500 }
     )
     for (const r of suiteRuns) {
       runs.push({
@@ -105,35 +113,4 @@ export const withRetry = async <T>(
     }
   }
   throw lastErr
-}
-
-// Polls listSuitesForRef until the trigger check_suite (the one whose
-// completed event invoked the action) is reported as completed. Mitigates
-// the eventual-consistency window where the trigger suite still appears
-// in_progress in the API response right after the event fires.
-export const waitForTriggerSuiteCompleted = async (
-  octokit: OctokitLike,
-  owner: string,
-  repo: string,
-  sha: string,
-  triggerSuiteId: number,
-  options: { attempts: number; delayMs: number } = {
-    attempts: 5,
-    delayMs: 2000
-  }
-): Promise<boolean> => {
-  for (let i = 0; i < options.attempts; i++) {
-    const { data } = await octokit.rest.checks.listSuitesForRef({
-      owner,
-      repo,
-      ref: sha,
-      per_page: 100
-    })
-    const trigger = data.check_suites.find((s) => s.id === triggerSuiteId)
-    if (trigger !== undefined && trigger.status === 'completed') return true
-    if (i < options.attempts - 1) {
-      await new Promise((r) => setTimeout(r, options.delayMs))
-    }
-  }
-  return false
 }

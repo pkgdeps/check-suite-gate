@@ -15,7 +15,7 @@ export type AggregatedCheckRun = {
 
 export const parseList = (raw: string): string[] =>
   raw
-    .split(',')
+    .split(/[,\n]/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
 

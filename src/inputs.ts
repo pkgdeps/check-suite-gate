@@ -5,6 +5,7 @@ export type RawInputs = {
   ignoreApps: string
   ignoreChecks: string
   token: string
+  pollIntervalSeconds: string
 }
 
 export type ParsedInputs = {
@@ -12,6 +13,17 @@ export type ParsedInputs = {
   ignoreApps: string[]
   ignoreChecks: string[]
   token: string
+  pollIntervalSeconds: number
+}
+
+const parsePositiveInt = (raw: string, name: string): number => {
+  const n = Number.parseInt(raw, 10)
+  if (Number.isNaN(n) || n <= 0) {
+    throw new Error(
+      `input \`${name}\` must be a positive integer (got: "${raw}")`
+    )
+  }
+  return n
 }
 
 export const parseInputs = (raw: RawInputs): ParsedInputs => {
@@ -22,6 +34,10 @@ export const parseInputs = (raw: RawInputs): ParsedInputs => {
     context: raw.context,
     ignoreApps: parseList(raw.ignoreApps),
     ignoreChecks: parseList(raw.ignoreChecks),
-    token: raw.token
+    token: raw.token,
+    pollIntervalSeconds: parsePositiveInt(
+      raw.pollIntervalSeconds,
+      'poll-interval-seconds'
+    )
   }
 }

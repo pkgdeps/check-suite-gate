@@ -19735,10 +19735,10 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       (0, command_1.issueCommand)("error", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
     exports2.error = error;
-    function warning(message, properties = {}) {
+    function warning2(message, properties = {}) {
       (0, command_1.issueCommand)("warning", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
-    exports2.warning = warning;
+    exports2.warning = warning2;
     function notice(message, properties = {}) {
       (0, command_1.issueCommand)("notice", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
@@ -23883,7 +23883,7 @@ var github = __toESM(require_github());
 
 // src/filter.ts
 var import_node_path = __toESM(require("node:path"));
-var parseList = (raw) => raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+var parseList = (raw) => raw.split(/[,\n]/).map((s) => s.trim()).filter((s) => s.length > 0);
 var matchesAnyGlob = (value, patterns) => {
   const SENTINEL = "";
   const flat = value.replaceAll("/", SENTINEL);
@@ -23898,6 +23898,15 @@ var applyFilters = (runs, ignoreApps, ignoreChecks) => runs.filter((run2) => {
 });
 
 // src/inputs.ts
+var parsePositiveInt = (raw, name) => {
+  const n = Number.parseInt(raw, 10);
+  if (Number.isNaN(n) || n <= 0) {
+    throw new Error(
+      `input \`${name}\` must be a positive integer (got: "${raw}")`
+    );
+  }
+  return n;
+};
 var parseInputs = (raw) => {
   if (raw.token.trim().length === 0) {
     throw new Error("input `token` must not be empty");
@@ -23906,22 +23915,32 @@ var parseInputs = (raw) => {
     context: raw.context,
     ignoreApps: parseList(raw.ignoreApps),
     ignoreChecks: parseList(raw.ignoreChecks),
-    token: raw.token
+    token: raw.token,
+    pollIntervalSeconds: parsePositiveInt(
+      raw.pollIntervalSeconds,
+      "poll-interval-seconds"
+    )
   };
 };
 
 // src/api.ts
 var fetchAllCheckRuns = async (octokit, owner, repo, sha) => {
-  const suites = await octokit.paginate(
-    octokit.rest.checks.listSuitesForRef,
-    { owner, repo, ref: sha, per_page: 100 }
+  const suites = await withRetry(
+    () => octokit.paginate(
+      octokit.rest.checks.listSuitesForRef,
+      { owner, repo, ref: sha, per_page: 100 }
+    ),
+    { retries: 3, baseDelayMs: 500 }
   );
   const runs = [];
   for (const suite of suites) {
     const slug = suite.app?.slug ?? "unknown";
-    const suiteRuns = await octokit.paginate(
-      octokit.rest.checks.listForSuite,
-      { owner, repo, check_suite_id: suite.id, per_page: 100 }
+    const suiteRuns = await withRetry(
+      () => octokit.paginate(
+        octokit.rest.checks.listForSuite,
+        { owner, repo, check_suite_id: suite.id, per_page: 100 }
+      ),
+      { retries: 3, baseDelayMs: 500 }
     );
     for (const r of suiteRuns) {
       runs.push({
@@ -23953,25 +23972,6 @@ var withRetry = async (fn, options) => {
   }
   throw lastErr;
 };
-var waitForTriggerSuiteCompleted = async (octokit, owner, repo, sha, triggerSuiteId, options = {
-  attempts: 5,
-  delayMs: 2e3
-}) => {
-  for (let i = 0; i < options.attempts; i++) {
-    const { data } = await octokit.rest.checks.listSuitesForRef({
-      owner,
-      repo,
-      ref: sha,
-      per_page: 100
-    });
-    const trigger = data.check_suites.find((s) => s.id === triggerSuiteId);
-    if (trigger !== void 0 && trigger.status === "completed") return true;
-    if (i < options.attempts - 1) {
-      await new Promise((r) => setTimeout(r, options.delayMs));
-    }
-  }
-  return false;
-};
 
 // src/self-exclusion.ts
 var RUN_ID_REGEX = /\/actions\/runs\/(\d+)\/job\/\d+/;
@@ -23997,20 +23997,35 @@ var classify = (run2) => {
 };
 
 // src/aggregator.ts
-var aggregate = (input) => {
-  const { runs, mode } = input;
+var aggregate = (runs) => {
   const total = runs.length;
   const completed = runs.filter((r) => r.status === "completed").length;
-  if (mode === "normal") {
-    const anyPending = runs.some((r) => classify(r) === "pending");
-    if (anyPending) {
-      return { state: "pending", mode, total, completed };
-    }
+  const anyPending = runs.some((r) => classify(r) === "pending");
+  if (anyPending) {
+    return { state: "pending", total, completed };
   }
-  const consideredRuns = mode === "rescue" ? runs.filter((r) => r.status === "completed") : runs;
-  const anyRed = consideredRuns.some((r) => classify(r) === "red");
-  if (anyRed) return { state: "failure", mode, total, completed };
-  return { state: "success", mode, total, completed };
+  const anyRed = runs.some((r) => classify(r) === "red");
+  if (anyRed) return { state: "failure", total, completed };
+  return { state: "success", total, completed };
+};
+
+// src/polling.ts
+var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var pollUntilComplete = async (fetchRuns, options) => {
+  const intervalMs = options.intervalSeconds * 1e3;
+  let iterations = 0;
+  while (true) {
+    iterations++;
+    try {
+      const runs = await fetchRuns();
+      const result = aggregate(runs);
+      if (result.state !== "pending") {
+        return { state: result.state, iterations };
+      }
+    } catch {
+    }
+    await sleep(intervalMs);
+  }
 };
 
 // src/status.ts
@@ -24026,67 +24041,106 @@ var writeCommitStatus = async (octokit, input, retryOptions = {
 };
 
 // src/index.ts
+var PENDING_DESCRIPTION = "Awaiting Auto Merge enable";
 var run = async () => {
   const inputs = parseInputs({
     context: core.getInput("context"),
     ignoreApps: core.getInput("ignore-apps"),
     ignoreChecks: core.getInput("ignore-checks"),
-    token: core.getInput("token")
+    token: core.getInput("token"),
+    pollIntervalSeconds: core.getInput("poll-interval-seconds")
   });
-  const octokit = github.getOctokit(inputs.token);
   const ctx = github.context;
-  const eventName = ctx.eventName;
-  const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10);
+  if (ctx.eventName !== "pull_request") {
+    core.warning(
+      `automerge-gate only handles pull_request events; got "${ctx.eventName}". Skipping.`
+    );
+    return;
+  }
+  const action = ctx.payload.action ?? "";
+  const pr = ctx.payload.pull_request;
+  if (pr === void 0) {
+    core.setFailed("pull_request payload is missing");
+    return;
+  }
+  const sha = pr.head.sha;
   const runId = Number.parseInt(process.env.GITHUB_RUN_ID ?? "0", 10);
+  const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10);
   const serverUrl = process.env.GITHUB_SERVER_URL ?? "https://github.com";
   const repository = process.env.GITHUB_REPOSITORY ?? `${ctx.repo.owner}/${ctx.repo.repo}`;
-  const sha = eventName === "check_suite" ? ctx.payload.check_suite.head_sha : ctx.sha;
-  const triggerSuiteId = eventName === "check_suite" ? ctx.payload.check_suite.id : null;
-  if (triggerSuiteId !== null) {
-    await waitForTriggerSuiteCompleted(
-      octokit,
-      ctx.repo.owner,
-      ctx.repo.repo,
-      sha,
-      triggerSuiteId
-    );
-  }
-  const allRuns = await fetchAllCheckRuns(
-    octokit,
-    ctx.repo.owner,
-    ctx.repo.repo,
-    sha
-  );
-  const afterFilters = applyFilters(
-    allRuns,
-    inputs.ignoreApps,
-    inputs.ignoreChecks
-  );
-  const afterSelf = excludeOwnRuns(afterFilters, runId);
-  const mode = runAttempt > 1 ? "rescue" : "normal";
-  const result = aggregate({ runs: afterSelf, mode });
   const targetUrl = buildTargetUrl({
     serverUrl,
     repository,
     runId,
     runAttempt
   });
-  const incomplete = afterSelf.length - result.completed;
-  const description = result.state === "pending" ? `Waiting on ${incomplete} of ${afterSelf.length} checks` : `${result.state}: ${afterSelf.length} checks evaluated (mode=${mode})`;
+  const octokit = github.getOctokit(inputs.token);
+  if (action === "opened" || action === "synchronize" || action === "reopened") {
+    await writeCommitStatus(octokit, {
+      owner: ctx.repo.owner,
+      repo: ctx.repo.repo,
+      sha,
+      state: "pending",
+      context: inputs.context,
+      description: PENDING_DESCRIPTION,
+      target_url: targetUrl
+    });
+    core.setOutput("state", "pending");
+    core.setOutput("total-checks", "0");
+    core.setOutput("evaluated-checks", "0");
+    core.setOutput("completed-checks", "0");
+    core.setOutput("polled-iterations", "0");
+    return;
+  }
+  if (action !== "auto_merge_enabled") {
+    core.warning(`Skipping unsupported pull_request action: "${action}"`);
+    return;
+  }
+  let lastTotal = 0;
+  let lastEvaluated = 0;
+  let lastCompleted = 0;
+  const fetchRuns = async () => {
+    try {
+      const allRuns = await fetchAllCheckRuns(
+        octokit,
+        ctx.repo.owner,
+        ctx.repo.repo,
+        sha
+      );
+      lastTotal = allRuns.length;
+      const afterFilters = applyFilters(
+        allRuns,
+        inputs.ignoreApps,
+        inputs.ignoreChecks
+      );
+      const afterSelf = excludeOwnRuns(afterFilters, runId);
+      lastEvaluated = afterSelf.length;
+      lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
+      return afterSelf;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      core.warning(`API fetch failed during polling (will retry): ${message}`);
+      throw err;
+    }
+  };
+  const pollResult = await pollUntilComplete(fetchRuns, {
+    intervalSeconds: inputs.pollIntervalSeconds
+  });
+  const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`;
   await writeCommitStatus(octokit, {
     owner: ctx.repo.owner,
     repo: ctx.repo.repo,
     sha,
-    state: result.state,
+    state: pollResult.state,
     context: inputs.context,
     description: description.slice(0, 140),
     target_url: targetUrl
   });
-  core.setOutput("state", result.state);
-  core.setOutput("total-checks", String(allRuns.length));
-  core.setOutput("evaluated-checks", String(afterSelf.length));
-  core.setOutput("completed-checks", String(result.completed));
-  core.setOutput("mode", mode);
+  core.setOutput("state", pollResult.state);
+  core.setOutput("total-checks", String(lastTotal));
+  core.setOutput("evaluated-checks", String(lastEvaluated));
+  core.setOutput("completed-checks", String(lastCompleted));
+  core.setOutput("polled-iterations", String(pollResult.iterations));
 };
 run().catch((err) => {
   if (err instanceof Error) {
