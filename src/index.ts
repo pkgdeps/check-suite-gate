@@ -3,6 +3,7 @@ import * as github from '@actions/github'
 import { parseInputs } from './inputs.js'
 import type { OctokitLike } from './api.js'
 import { runPrivate } from './gate-private.js'
+import { runPublic } from './gate-public.js'
 import { parseReviewState } from './mode.js'
 import type { RunContext, RunDeps, RunEnv } from './run-deps.js'
 
@@ -72,8 +73,7 @@ const run = async (): Promise<void> => {
   if (inputs.gateMode === 'private') {
     await runPrivate(deps, inputs)
   } else {
-    // Task 5 + Task 7 wire runPublic. For now, fail loudly.
-    throw new Error('gate-mode: public not yet implemented (pending Task 5)')
+    await runPublic(deps, inputs)
   }
 }
 
