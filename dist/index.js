@@ -24375,7 +24375,6 @@ var run = async () => {
   core.info(`Mode: ${mode} \u2014 ${reason}`);
   core.endGroup();
   if (mode === "skip") {
-    core.warning(`Skipping unsupported pull_request action: "${action}"`);
     await writeSummary({
       state: "skipped",
       mode: "skip",

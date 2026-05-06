@@ -200,7 +200,10 @@ const run = async (): Promise<void> => {
   core.endGroup()
 
   if (mode === 'skip') {
-    core.warning(`Skipping unsupported pull_request action: "${action}"`)
+    // The skip rationale is already logged at INFO above ("Mode: skip
+    // — <reason>"). Don't double-log it as a warning: drive-by reviews
+    // and other expected skips would otherwise raise yellow ⚠ icons in
+    // the workflow run UI for a non-issue.
     await writeSummary({
       state: 'skipped',
       mode: 'skip',
