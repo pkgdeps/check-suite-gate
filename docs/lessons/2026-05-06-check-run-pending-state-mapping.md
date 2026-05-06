@@ -188,7 +188,7 @@ fork-gate の場合、 JOB自身が gate (= JOB起動時に check_run が in_pro
 
 §4 の queued pre-write は **v2 の 2-job mutex pattern (`main-gate` / `fork-gate`)** で skipped fork-gate の check_run が "latest" を保持する race を塞ぐための hotfix だった。 v3 では構成を 1 job に整理し直したので、 同名 check_run が複数 job から書かれる前提が成立せず、 race そのものが構造的に消える。 race protection が pre-write の唯一の構造的根拠だったため、 v3 では pre-write 自体を撤去した。
 
-詳細仕様は [docs/superpowers/specs/2026-05-06-v3-single-job-design.md](../superpowers/specs/2026-05-06-v3-single-job-design.md) を参照。
+設計の rationale は [docs/architecture.md](../architecture.md) を参照。
 
 ### v3 で構造的に消えた点
 
@@ -215,7 +215,6 @@ post-polling write の前に「`pollResult.state === 'pending'` ならば `setFa
 ## 関連
 
 - [docs/lessons/2026-05-05-check-suite-recursion-finding.md](./2026-05-05-check-suite-recursion-finding.md) — v1 設計の前提崩れ
-- [docs/superpowers/specs/2026-05-06-v3-single-job-design.md](../superpowers/specs/2026-05-06-v3-single-job-design.md) — v3 設計仕様 (race の構造的撤廃)
-- [docs/MIGRATION.md](../MIGRATION.md) — v2 → v3 移行ガイド
+- [docs/architecture.md](../architecture.md) — v3 設計の rationale
 - PR [#15](https://github.com/pkgdeps/automerge-gate/pull/15) — v2 移行 (commit status → check_run)
 - [src/check-run.ts](../../src/check-run.ts) — `stateToCheckRunFields` 実装
