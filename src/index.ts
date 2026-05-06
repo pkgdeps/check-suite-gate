@@ -16,6 +16,14 @@ import { buildTargetUrl, writeCommitStatus } from './status.js'
 
 const PENDING_DESCRIPTION = 'Awaiting Auto Merge enable'
 
+// pull_request activity types that represent the PR lifecycle (a new SHA
+// landed on the PR). These trigger pending mode by default, or polling
+// mode when Auto Merge is already enabled.
+const PR_LIFECYCLE_ACTIONS = ['opened', 'synchronize', 'reopened'] as const
+type PrLifecycleAction = (typeof PR_LIFECYCLE_ACTIONS)[number]
+const isLifecycleAction = (a: string): a is PrLifecycleAction =>
+  (PR_LIFECYCLE_ACTIONS as readonly string[]).includes(a)
+
 const run = async (): Promise<void> => {
   const inputs = parseInputs({
     context: core.getInput('context'),
@@ -106,20 +114,18 @@ const run = async (): Promise<void> => {
 
   // Decide which mode to run.
   // Polling mode: maintainer pressed "Enable Auto Merge" (auto_merge_enabled
-  // activity), OR Auto Merge is already enabled and the PR was just synced
-  // / reopened / opened (e.g. a Renovate-style auto-merge-on-creation PR).
-  // Pending mode: PR is open but Auto Merge is not yet enabled. We just
-  // mark the required check pending so the merge stays blocked.
+  // activity), OR Auto Merge is already enabled and a new SHA landed on
+  // the PR (e.g. a Renovate-style auto-merge-on-creation PR).
+  // Pending mode: a new SHA landed but Auto Merge is not yet enabled. We
+  // just mark the required check pending so the merge stays blocked.
+  const isAutoMergeEnabled = pr.auto_merge !== null
+  const isPrLifecycleEvent = isLifecycleAction(action)
+
   const isPollingMode =
     action === 'auto_merge_enabled' ||
-    ((action === 'opened' ||
-      action === 'synchronize' ||
-      action === 'reopened') &&
-      pr.auto_merge !== null)
+    (isPrLifecycleEvent && isAutoMergeEnabled)
 
-  const isPendingMode =
-    !isPollingMode &&
-    (action === 'opened' || action === 'synchronize' || action === 'reopened')
+  const isPendingMode = !isPollingMode && isPrLifecycleEvent
 
   if (isPendingMode) {
     await writeCommitStatus(octokit, {

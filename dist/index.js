@@ -24091,6 +24091,8 @@ var writeCommitStatus = async (octokit, input, retryOptions = {
 
 // src/index.ts
 var PENDING_DESCRIPTION = "Awaiting Auto Merge enable";
+var PR_LIFECYCLE_ACTIONS = ["opened", "synchronize", "reopened"];
+var isLifecycleAction = (a) => PR_LIFECYCLE_ACTIONS.includes(a);
 var run = async () => {
   const inputs = parseInputs({
     context: core.getInput("context"),
@@ -24159,8 +24161,10 @@ var run = async () => {
     core.setOutput("polled-iterations", "0");
     return;
   }
-  const isPollingMode = action === "auto_merge_enabled" || (action === "opened" || action === "synchronize" || action === "reopened") && pr.auto_merge !== null;
-  const isPendingMode = !isPollingMode && (action === "opened" || action === "synchronize" || action === "reopened");
+  const isAutoMergeEnabled = pr.auto_merge !== null;
+  const isPrLifecycleEvent = isLifecycleAction(action);
+  const isPollingMode = action === "auto_merge_enabled" || isPrLifecycleEvent && isAutoMergeEnabled;
+  const isPendingMode = !isPollingMode && isPrLifecycleEvent;
   if (isPendingMode) {
     await writeCommitStatus(octokit, {
       owner: ctx.repo.owner,
