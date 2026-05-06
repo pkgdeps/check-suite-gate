@@ -151,6 +151,35 @@ The previous version of this Action under the name `check-suite-gate` is preserv
 
 Releases are published as **immutable semver tags** (`v1.0.0`, `v1.1.0`, ...). There is intentionally no moving major tag (`v1`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
 
+## Releasing (maintainers)
+
+All releases are cut from the GitHub web UI. There is no release script and no `npm publish` step.
+
+### Pre-release checklist
+
+1. `main` is green on CI.
+2. `dist/index.js` is in sync with `src/`. The pre-commit hook keeps it in sync; if in doubt run:
+   ```bash
+   npm run build
+   git diff --exit-code dist/   # should be empty
+   ```
+
+### Cutting a release
+
+1. Go to **Releases → Draft a new release**.
+2. **Choose a tag**: type the new version (e.g. `v1.0.0`) and select *Create new tag on publish*.
+3. **Target**: `main`.
+4. **Release title**: same as the tag (e.g. `v1.0.0`).
+5. Click **Generate release notes** to autopopulate from PRs / commits since the last tag.
+6. **Set as the latest release**: ✅
+7. **Mark as an immutable release** (Public Preview): ✅ if the option is shown — locks the tag and asset checksums so they cannot be silently rewritten later.
+8. **Publish to GitHub Marketplace**: ✅ on the **first** release only. Subsequent releases auto-update the existing Marketplace listing.
+9. Click **Publish release**.
+
+### After publishing
+
+Users pin a fixed version: `uses: pkgdeps/automerge-gate@v1.0.0`. Renovate / Dependabot will open update PRs as new versions ship.
+
 ## License
 
 MIT
