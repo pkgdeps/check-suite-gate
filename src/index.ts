@@ -108,6 +108,7 @@ const run = async (): Promise<void> => {
     context: core.getInput('context'),
     ignoreApps: core.getInput('ignore-apps'),
     ignoreChecks: core.getInput('ignore-checks'),
+    mode: core.getInput('mode'),
     token: core.getInput('token'),
     pollIntervalSeconds: core.getInput('poll-interval-seconds')
   })
@@ -181,15 +182,17 @@ const run = async (): Promise<void> => {
   }
 
   if (mode === 'pending') {
-    await tryWriteCommitStatus(octokit, {
-      owner: ctx.repo.owner,
-      repo: ctx.repo.repo,
-      sha,
-      state: 'pending',
-      context: inputs.context,
-      description: PENDING_DESCRIPTION,
-      target_url: targetUrl
-    })
+    if (inputs.mode === 'commit-status') {
+      await tryWriteCommitStatus(octokit, {
+        owner: ctx.repo.owner,
+        repo: ctx.repo.repo,
+        sha,
+        state: 'pending',
+        context: inputs.context,
+        description: PENDING_DESCRIPTION,
+        target_url: targetUrl
+      })
+    }
     core.setOutput('state', 'pending')
     core.setOutput('total-checks', '0')
     core.setOutput('evaluated-checks', '0')
@@ -275,15 +278,17 @@ const run = async (): Promise<void> => {
 
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`
 
-  await tryWriteCommitStatus(octokit, {
-    owner: ctx.repo.owner,
-    repo: ctx.repo.repo,
-    sha,
-    state: pollResult.state,
-    context: inputs.context,
-    description: description.slice(0, 140),
-    target_url: targetUrl
-  })
+  if (inputs.mode === 'commit-status') {
+    await tryWriteCommitStatus(octokit, {
+      owner: ctx.repo.owner,
+      repo: ctx.repo.repo,
+      sha,
+      state: pollResult.state,
+      context: inputs.context,
+      description: description.slice(0, 140),
+      target_url: targetUrl
+    })
+  }
 
   core.setOutput('state', pollResult.state)
   core.setOutput('total-checks', String(lastTotal))

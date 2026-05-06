@@ -23907,6 +23907,12 @@ var parsePositiveInt = (raw, name) => {
   }
   return n;
 };
+var parseMode = (raw) => {
+  if (raw === "commit-status" || raw === "fork") return raw;
+  throw new Error(
+    `input \`mode\` must be "commit-status" or "fork" (got: "${raw}")`
+  );
+};
 var parseInputs = (raw) => {
   if (raw.token.trim().length === 0) {
     throw new Error("input `token` must not be empty");
@@ -23915,6 +23921,7 @@ var parseInputs = (raw) => {
     context: raw.context,
     ignoreApps: parseList(raw.ignoreApps),
     ignoreChecks: parseList(raw.ignoreChecks),
+    mode: parseMode(raw.mode),
     token: raw.token,
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
@@ -24135,6 +24142,7 @@ var run = async () => {
     context: core.getInput("context"),
     ignoreApps: core.getInput("ignore-apps"),
     ignoreChecks: core.getInput("ignore-checks"),
+    mode: core.getInput("mode"),
     token: core.getInput("token"),
     pollIntervalSeconds: core.getInput("poll-interval-seconds")
   });
@@ -24186,15 +24194,17 @@ var run = async () => {
     return;
   }
   if (mode === "pending") {
-    await tryWriteCommitStatus(octokit, {
-      owner: ctx.repo.owner,
-      repo: ctx.repo.repo,
-      sha,
-      state: "pending",
-      context: inputs.context,
-      description: PENDING_DESCRIPTION,
-      target_url: targetUrl
-    });
+    if (inputs.mode === "commit-status") {
+      await tryWriteCommitStatus(octokit, {
+        owner: ctx.repo.owner,
+        repo: ctx.repo.repo,
+        sha,
+        state: "pending",
+        context: inputs.context,
+        description: PENDING_DESCRIPTION,
+        target_url: targetUrl
+      });
+    }
     core.setOutput("state", "pending");
     core.setOutput("total-checks", "0");
     core.setOutput("evaluated-checks", "0");
@@ -24268,15 +24278,17 @@ var run = async () => {
   );
   core.endGroup();
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`;
-  await tryWriteCommitStatus(octokit, {
-    owner: ctx.repo.owner,
-    repo: ctx.repo.repo,
-    sha,
-    state: pollResult.state,
-    context: inputs.context,
-    description: description.slice(0, 140),
-    target_url: targetUrl
-  });
+  if (inputs.mode === "commit-status") {
+    await tryWriteCommitStatus(octokit, {
+      owner: ctx.repo.owner,
+      repo: ctx.repo.repo,
+      sha,
+      state: pollResult.state,
+      context: inputs.context,
+      description: description.slice(0, 140),
+      target_url: targetUrl
+    });
+  }
   core.setOutput("state", pollResult.state);
   core.setOutput("total-checks", String(lastTotal));
   core.setOutput("evaluated-checks", String(lastEvaluated));
