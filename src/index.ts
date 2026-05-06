@@ -1,9 +1,16 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import { parseInputs } from './inputs.js'
-import { fetchAllCheckRuns, type OctokitLike } from './api.js'
+import {
+  fetchAllCheckRuns,
+  createWorkflowPathLookup,
+  type OctokitLike
+} from './api.js'
 import { applyFilters } from './filter.js'
-import { excludeOwnRuns } from './self-exclusion.js'
+import {
+  excludeOwnWorkflowRuns,
+  parseCurrentWorkflowPath
+} from './self-exclusion.js'
 import { pollUntilComplete } from './polling.js'
 import { buildTargetUrl, writeCommitStatus } from './status.js'
 
@@ -127,6 +134,15 @@ const run = async (): Promise<void> => {
   let lastEvaluated = 0
   let lastCompleted = 0
 
+  const currentWorkflowPath = parseCurrentWorkflowPath(
+    process.env.GITHUB_WORKFLOW_REF
+  )
+  const lookupWorkflowPath = createWorkflowPathLookup(
+    octokit,
+    ctx.repo.owner,
+    ctx.repo.repo
+  )
+
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(
@@ -141,7 +157,11 @@ const run = async (): Promise<void> => {
         inputs.ignoreApps,
         inputs.ignoreChecks
       )
-      const afterSelf = excludeOwnRuns(afterFilters, runId)
+      const afterSelf = await excludeOwnWorkflowRuns(
+        afterFilters,
+        currentWorkflowPath,
+        lookupWorkflowPath
+      )
       lastEvaluated = afterSelf.length
       lastCompleted = afterSelf.filter((r) => r.status === 'completed').length
       return afterSelf

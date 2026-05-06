@@ -93,6 +93,47 @@ export const fetchAllCheckRuns = async (
   return runs
 }
 
+// Returns a memoizing lookup for an actions run's workflow path. Used by
+// self-exclusion to drop check_runs that belong to the same workflow file
+// as the currently executing run (covers cancelled siblings etc.).
+export const createWorkflowPathLookup = (
+  octokit: OctokitLike,
+  owner: string,
+  repo: string
+): ((runId: number) => Promise<string | null>) => {
+  const cache = new Map<number, string | null>()
+  return async (runId: number) => {
+    if (cache.has(runId)) {
+      return cache.get(runId) ?? null
+    }
+    try {
+      const result = await withRetry(
+        () =>
+          (
+            octokit as unknown as {
+              rest: {
+                actions: {
+                  getWorkflowRun: (params: {
+                    owner: string
+                    repo: string
+                    run_id: number
+                  }) => Promise<{ data: { path: string } }>
+                }
+              }
+            }
+          ).rest.actions.getWorkflowRun({ owner, repo, run_id: runId }),
+        { retries: 3, baseDelayMs: 500 }
+      )
+      const path = result.data.path
+      cache.set(runId, path)
+      return path
+    } catch {
+      cache.set(runId, null)
+      return null
+    }
+  }
+}
+
 // Exponential backoff retry. Retries only on 5xx errors (or errors with
 // no `status` property, treated as transient). 4xx errors throw immediately.
 export const withRetry = async <T>(

@@ -23963,6 +23963,26 @@ var fetchAllCheckRuns = async (octokit, owner, repo, sha) => {
   }
   return runs;
 };
+var createWorkflowPathLookup = (octokit, owner, repo) => {
+  const cache = /* @__PURE__ */ new Map();
+  return async (runId) => {
+    if (cache.has(runId)) {
+      return cache.get(runId) ?? null;
+    }
+    try {
+      const result = await withRetry(
+        () => octokit.rest.actions.getWorkflowRun({ owner, repo, run_id: runId }),
+        { retries: 3, baseDelayMs: 500 }
+      );
+      const path2 = result.data.path;
+      cache.set(runId, path2);
+      return path2;
+    } catch {
+      cache.set(runId, null);
+      return null;
+    }
+  };
+};
 var withRetry = async (fn, options) => {
   let lastErr;
   for (let attempt = 0; attempt <= options.retries; attempt++) {
@@ -23987,12 +24007,34 @@ var extractRunId = (detailsUrl) => {
   if (match === null) return null;
   return Number.parseInt(match[1], 10);
 };
-var isOwnRun = (run2, ownRunId) => {
-  if (run2.app.slug !== "github-actions") return false;
-  const runId = extractRunId(run2.details_url);
-  return runId === ownRunId;
+var parseCurrentWorkflowPath = (workflowRef) => {
+  if (workflowRef === void 0 || workflowRef.length === 0) return null;
+  const atIndex = workflowRef.indexOf("@");
+  const beforeAt = atIndex === -1 ? workflowRef : workflowRef.slice(0, atIndex);
+  const parts = beforeAt.split("/");
+  if (parts.length < 3) return null;
+  return parts.slice(2).join("/");
 };
-var excludeOwnRuns = (runs, ownRunId) => runs.filter((r) => !isOwnRun(r, ownRunId));
+var isFromSameWorkflow = async (run2, currentWorkflowPath, lookupWorkflowPath) => {
+  if (run2.app.slug !== "github-actions") return false;
+  if (currentWorkflowPath === null) return false;
+  const runId = extractRunId(run2.details_url);
+  if (runId === null) return false;
+  const path2 = await lookupWorkflowPath(runId);
+  return path2 === currentWorkflowPath;
+};
+var excludeOwnWorkflowRuns = async (runs, currentWorkflowPath, lookupWorkflowPath) => {
+  const keep = [];
+  for (const r of runs) {
+    const own = await isFromSameWorkflow(
+      r,
+      currentWorkflowPath,
+      lookupWorkflowPath
+    );
+    if (!own) keep.push(r);
+  }
+  return keep;
+};
 
 // src/conclusion.ts
 var GREEN_CONCLUSIONS = /* @__PURE__ */ new Set(["success", "skipped", "neutral"]);
@@ -24141,6 +24183,14 @@ var run = async () => {
   let lastTotal = 0;
   let lastEvaluated = 0;
   let lastCompleted = 0;
+  const currentWorkflowPath = parseCurrentWorkflowPath(
+    process.env.GITHUB_WORKFLOW_REF
+  );
+  const lookupWorkflowPath = createWorkflowPathLookup(
+    octokit,
+    ctx.repo.owner,
+    ctx.repo.repo
+  );
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(
@@ -24155,7 +24205,11 @@ var run = async () => {
         inputs.ignoreApps,
         inputs.ignoreChecks
       );
-      const afterSelf = excludeOwnRuns(afterFilters, runId);
+      const afterSelf = await excludeOwnWorkflowRuns(
+        afterFilters,
+        currentWorkflowPath,
+        lookupWorkflowPath
+      );
       lastEvaluated = afterSelf.length;
       lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
       return afterSelf;
