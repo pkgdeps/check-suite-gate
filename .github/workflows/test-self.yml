@@ -17,9 +17,6 @@ concurrency:
 
 jobs:
   gate:
-    # Skip review submissions that aren't Approves. on: can't filter
-    # review.state, so we filter at job level to avoid spinning up the
-    # runner for commented/changes_requested reviews.
     if: >-
       github.event_name != 'pull_request_review'
       || github.event.review.state == 'approved'
@@ -37,6 +34,6 @@ jobs:
       - name: Self-host gate
         uses: ./
         with:
-          gate: main
+          gate-mode: 'private'
           context: 'automerge-gate/self-test'
           ignore-checks: 'automerge-gate/self-test'
