@@ -6,27 +6,29 @@ This is the successor to [`pkgdeps/check-suite-gate`](https://github.com/pkgdeps
 
 ## How it works
 
+```mermaid
+sequenceDiagram
+    participant U as Maintainer
+    participant PR as Pull Request
+
+    U->>PR: open / push
+    Note over PR: Aggregated status: pending<br/>(required check → merge blocked)
+
+    U->>PR: click "Enable Auto Merge"
+    Note over PR: Wait until all checks complete
+
+    alt all checks pass
+        Note over PR: Aggregated status: success
+        PR->>PR: GitHub native auto-merge → merged
+    else any check fails
+        Note over PR: Aggregated status: failure<br/>(auto-merge blocked)
+    end
 ```
-PR opened / push / reopened
-   ↓
-automerge-gate writes a pending commit status
-   ("Awaiting Auto Merge enable")
-   → register this context as a required check, and the PR is merge-blocked
-   ↓
-maintainer presses "Enable Auto Merge"
-   ↓
-GitHub fires pull_request.auto_merge_enabled
-   ↓
-automerge-gate runs a polling loop:
-   listSuitesForRef + listForSuite for the PR head SHA
-   filter ignore-apps / ignore-checks / its own check_run
-   if every remaining run is completed → write success/failure → exit
-   else → sleep poll-interval-seconds → poll again
-   (the job's `timeout-minutes` bounds total runtime)
-   ↓
-status turns green → GitHub native auto-merge fires
-status turns red    → auto-merge is blocked
-```
+
+1. The PR is merge-blocked from the moment it's opened — the aggregated status is `pending` with `Awaiting Auto Merge enable`.
+2. When the maintainer clicks **Enable Auto Merge**, the gate starts watching every check on the PR.
+3. The gate flips the aggregated status to `success` (all checks green) or `failure` (any check red).
+4. GitHub's native auto-merge takes care of the actual merge once everything is green.
 
 ## Usage
 
@@ -51,6 +53,10 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    # `timeout-minutes` is effectively the action's timeout. The action has
+    # no internal timeout input — the polling loop runs until all checks
+    # complete or the runner is killed by this value. Set it to roughly the
+    # longest CI duration in your repository.
     timeout-minutes: 10
     steps:
       - uses: pkgdeps/automerge-gate@v1
@@ -67,6 +73,9 @@ jobs:
 
 Then register `automerge-gate/all-passed` as a required status check in your ruleset / branch protection. The PR will be merge-blocked until a maintainer presses "Enable Auto Merge" and the gate writes a success status.
 
+> [!IMPORTANT]
+> The action does **not** expose a timeout input. The job-level `timeout-minutes` is the only bound on how long the polling loop runs, and you should treat it as part of the action's configuration. There are no two timeouts to keep in sync — just one. If your CI runs longer than 10 minutes, raise `timeout-minutes` accordingly.
+
 ## Inputs
 
 | name | required | default | description |
@@ -77,7 +86,7 @@ Then register `automerge-gate/all-passed` as a required status check in your rul
 | `ignore-checks` | no | (empty) | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated** |
 | `token` | no | `${{ github.token }}` | GitHub token |
 
-The polling loop has no internal timeout. Bound it via the job's `timeout-minutes` (10 minutes is recommended for typical CI).
+There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
 
 ## Outputs
 
@@ -95,7 +104,7 @@ The polling loop has no internal timeout. Bound it via the job's `timeout-minute
 - **Polling is gated by an explicit signal** (Enable Auto Merge), so PRs the maintainer hasn't yet decided to merge don't burn runner minutes. Compared with merge-gatekeeper, which polls on every PR push, the resource cost scales with merge intent rather than with PR throughput.
 - **The aggregated result is a commit status, not a check_run**, so there's no self-referencing loop in the github-actions check_suite — the gate doesn't see its own writes when it polls.
 - **GitHub native auto-merge handles the merge itself** once the aggregated status turns green. This Action does not call `pulls.merge`.
-- **No internal timeout** — relies on the job's `timeout-minutes`, keeping the action's surface minimal.
+- **No internal timeout input** — timeout is managed by the job's `timeout-minutes`. Having two timeouts to keep in sync (action input vs job-level) is a footgun, so the action delegates fully. There's exactly one knob, and it's a standard GitHub Actions feature.
 
 ## Limitations
 
