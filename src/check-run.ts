@@ -1,5 +1,20 @@
+import * as core from '@actions/core'
 import { withRetry, type OctokitLike } from './api.js'
 import type { State } from './aggregator.js'
+
+// Shape of the response returned by GitHub for check_run create / update.
+// We only care about the diagnostic fields here; cast at the call site so
+// the rest of the OctokitLike contract stays Promise<unknown>.
+type CheckRunResponse = {
+  data?: {
+    id?: number
+    name?: string
+    conclusion?: string | null
+    status?: string
+    html_url?: string
+    check_suite?: { id?: number }
+  }
+}
 
 export type TargetUrlInput = {
   serverUrl: string
@@ -81,7 +96,10 @@ export const writeCheckRun = async (
   const { owner, repo, sha, state, name, output, details_url } = input
   const { status, conclusion } = stateToCheckRunFields(state)
 
-  await withRetry(
+  core.info(
+    `writeCheckRun: POST check-runs name=${name} sha=${sha} status=${status} conclusion=${conclusion ?? '-'}`
+  )
+  const result = (await withRetry(
     () =>
       octokit.rest.checks.create({
         owner,
@@ -95,7 +113,17 @@ export const writeCheckRun = async (
         details_url
       }) as Promise<unknown>,
     retryOptions
-  )
+  )) as CheckRunResponse
+  const data = result?.data
+  if (data !== undefined) {
+    core.info(
+      `writeCheckRun: created check_run id=${data.id} suite_id=${data.check_suite?.id} status=${data.status} conclusion=${data.conclusion ?? '-'} url=${data.html_url ?? '-'}`
+    )
+  } else {
+    core.warning(
+      'writeCheckRun: API returned no data field — unable to confirm check_run id / suite assignment'
+    )
+  }
 }
 
 export type MarkCheckRunStaleInput = {
@@ -149,8 +177,14 @@ export const markCheckRunStale = async (
   const ours = list.data.check_runs.filter(
     (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
   )
+  core.info(
+    `markCheckRunStale: sha=${sha} found ${ours.length} matching check_run(s) with our external_id (out of ${list.data.check_runs.length} listed by name)`
+  )
 
   for (const run of ours) {
+    core.info(
+      `markCheckRunStale: PATCH check_run id=${run.id} → conclusion: cancelled`
+    )
     await withRetry(
       () =>
         octokit.rest.checks.update({

@@ -1,3 +1,4 @@
+import * as core from '@actions/core'
 import { withRetry, type OctokitLike, type ReviewListItem } from './api.js'
 
 // Permission levels that imply write access — admin / maintain / write.
@@ -38,6 +39,9 @@ const hasWritePermission = async (
       WRITE_PERMISSIONS.has(result.data.permission) ||
       (result.data.role_name !== undefined &&
         WRITE_ROLE_NAMES.has(result.data.role_name))
+    core.info(
+      `hasWritePermission: ${username} permission=${result.data.permission} role_name=${result.data.role_name ?? '-'} → ${ok ? 'WRITE' : 'no-write'}`
+    )
     cache.set(username, ok)
     return ok
   } catch (err) {
@@ -45,6 +49,7 @@ const hasWritePermission = async (
     // the negative result so a noisy review listing doesn't burn quota
     // re-asking about the same user.
     if ((err as { status?: number }).status === 404) {
+      core.info(`hasWritePermission: ${username} not a collaborator (404)`)
       cache.set(username, false)
       return false
     }
@@ -84,6 +89,9 @@ export const hasActiveApproval = async (
       ),
     retryOptions
   )
+  core.info(
+    `hasActiveApproval: PR #${pullNumber} has ${reviews.length} total reviews`
+  )
 
   const latestPerUser = new Map<string, ReviewListItem>()
   for (const r of reviews) {
@@ -92,22 +100,29 @@ export const hasActiveApproval = async (
     if (login === undefined || login === null) continue
     latestPerUser.set(login, r)
   }
+  core.info(
+    `hasActiveApproval: latest non-COMMENTED review per user = ${
+      [...latestPerUser.entries()]
+        .map(([login, r]) => `${login}:${r.state}`)
+        .join(', ') || '(none)'
+    }`
+  )
 
   const permCache = new Map<string, boolean>()
   for (const [login, r] of latestPerUser) {
     if (r.state !== 'APPROVED') continue
-    if (
-      await hasWritePermission(
-        octokit,
-        owner,
-        repo,
-        login,
-        permCache,
-        retryOptions
-      )
-    ) {
-      return true
-    }
+    const ok = await hasWritePermission(
+      octokit,
+      owner,
+      repo,
+      login,
+      permCache,
+      retryOptions
+    )
+    core.info(
+      `hasActiveApproval: ${login} APPROVED, write_access=${ok ? 'yes' : 'no'}`
+    )
+    if (ok) return true
   }
   return false
 }
