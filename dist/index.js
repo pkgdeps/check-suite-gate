@@ -24139,8 +24139,39 @@ var writeCheckRun = async (octokit, input, retryOptions = {
     retryOptions
   );
 };
+var markCheckRunStale = async (octokit, input, retryOptions = {
+  retries: 3,
+  baseDelayMs: 500
+}) => {
+  const { owner, repo, sha, name } = input;
+  const list = await withRetry(
+    () => octokit.rest.checks.listForRef({
+      owner,
+      repo,
+      ref: sha,
+      check_name: name,
+      per_page: 100
+    }),
+    retryOptions
+  );
+  const existing = list.data.check_runs.find(
+    (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
+  );
+  if (existing === void 0) return;
+  await withRetry(
+    () => octokit.rest.checks.update({
+      owner,
+      repo,
+      check_run_id: existing.id,
+      status: "completed",
+      conclusion: "stale"
+    }),
+    retryOptions
+  );
+};
 
 // src/index.ts
+var ZERO_SHA = "0000000000000000000000000000000000000000";
 var buildPendingOutput = () => ({
   title: "Waiting for Enable auto-merge",
   summary: [
@@ -24244,6 +24275,17 @@ var run = async () => {
       iterations: 0
     });
     return;
+  }
+  if (inputs.mode === "main-gate" && action === "synchronize") {
+    const before = ctx.payload.before;
+    if (before !== void 0 && before !== ZERO_SHA && before !== sha) {
+      await markCheckRunStale(octokit, {
+        owner: ctx.repo.owner,
+        repo: ctx.repo.repo,
+        sha: before,
+        name: inputs.context
+      });
+    }
   }
   if (mode === "pending") {
     if (inputs.mode === "main-gate") {

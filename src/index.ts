@@ -15,8 +15,11 @@ import { pollUntilComplete } from './polling.js'
 import {
   buildTargetUrl,
   writeCheckRun,
+  markCheckRunStale,
   type CheckRunOutput
 } from './check-run.js'
+
+const ZERO_SHA = '0000000000000000000000000000000000000000'
 
 // Output shown when the gate is waiting for the maintainer to click
 // "Enable auto-merge". The title is what GitHub renders inline in the PR
@@ -195,6 +198,23 @@ const run = async (): Promise<void> => {
       iterations: 0
     })
     return
+  }
+
+  // Mark the aggregated check_run on the previous HEAD SHA as stale, so
+  // the PR's Commits tab doesn't accumulate yellow-dot queued entries
+  // for every superseded push. Only synchronize carries `before`; opened
+  // / reopened / auto_merge_enabled don't bring a previous SHA we'd
+  // need to clean up.
+  if (inputs.mode === 'main-gate' && action === 'synchronize') {
+    const before = (ctx.payload as { before?: string }).before
+    if (before !== undefined && before !== ZERO_SHA && before !== sha) {
+      await markCheckRunStale(octokit, {
+        owner: ctx.repo.owner,
+        repo: ctx.repo.repo,
+        sha: before,
+        name: inputs.context
+      })
+    }
   }
 
   if (mode === 'pending') {

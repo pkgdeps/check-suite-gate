@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   buildTargetUrl,
   writeCheckRun,
+  markCheckRunStale,
   CHECK_RUN_EXTERNAL_ID
 } from '../src/check-run.js'
 import type { OctokitLike, CheckRunListItem } from '../src/api.js'
@@ -236,5 +237,77 @@ describe('writeCheckRun', () => {
       )
     ).rejects.toEqual({ status: 422 })
     expect(mocks.create).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('markCheckRunStale', () => {
+  it('PATCHes a matching check_run with conclusion: stale', async () => {
+    const existing: CheckRunListItem = {
+      id: 4242,
+      name: 'automerge-gate/all-passed',
+      status: 'queued',
+      conclusion: null,
+      external_id: CHECK_RUN_EXTERNAL_ID,
+      app: { slug: 'github-actions' }
+    }
+    const { octokit, mocks } = buildOctokit([existing])
+
+    await markCheckRunStale(octokit, {
+      owner: 'o',
+      repo: 'r',
+      sha: 'old-sha',
+      name: 'automerge-gate/all-passed'
+    })
+
+    expect(mocks.list).toHaveBeenCalledWith({
+      owner: 'o',
+      repo: 'r',
+      ref: 'old-sha',
+      check_name: 'automerge-gate/all-passed',
+      per_page: 100
+    })
+    expect(mocks.update).toHaveBeenCalledWith({
+      owner: 'o',
+      repo: 'r',
+      check_run_id: 4242,
+      status: 'completed',
+      conclusion: 'stale'
+    })
+    expect(mocks.create).not.toHaveBeenCalled()
+  })
+
+  it('no-ops when no matching check_run is found', async () => {
+    const { octokit, mocks } = buildOctokit([])
+
+    await markCheckRunStale(octokit, {
+      owner: 'o',
+      repo: 'r',
+      sha: 'old-sha',
+      name: 'automerge-gate/all-passed'
+    })
+
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(mocks.create).not.toHaveBeenCalled()
+  })
+
+  it('skips check_runs with a different external_id', async () => {
+    const unrelated: CheckRunListItem = {
+      id: 1,
+      name: 'automerge-gate/all-passed',
+      status: 'completed',
+      conclusion: 'success',
+      external_id: 'someone-else',
+      app: { slug: 'other-app' }
+    }
+    const { octokit, mocks } = buildOctokit([unrelated])
+
+    await markCheckRunStale(octokit, {
+      owner: 'o',
+      repo: 'r',
+      sha: 'old-sha',
+      name: 'automerge-gate/all-passed'
+    })
+
+    expect(mocks.update).not.toHaveBeenCalled()
   })
 })

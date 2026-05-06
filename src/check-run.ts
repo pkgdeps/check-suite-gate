@@ -38,22 +38,10 @@ export type WriteCheckRunInput = {
 
 // State → check_run (status, conclusion) mapping.
 //
-// pending → status: queued (non-terminal, no conclusion). Renders as a
-// neutral yellow dot in the PR Checks UI. Two more semantically precise
-// values were tried and rejected:
-//
-//   - conclusion: action_required — renders as a red exclamation,
-//     indistinguishable from a failure to a maintainer scanning the PR.
-//     The intent here is "click the button", not "this run failed".
-//   - status: waiting — the Checks API rejects it with 422 ("waiting is
-//     not a member of [queued, in_progress, completed]") when called
-//     with GITHUB_TOKEN. The docs' "Only GitHub Actions can set" wording
-//     reserves it for GitHub's internal Actions service, not workflow
-//     callers. Same for status: pending and status: requested.
-//
-// queued matches the visual affordance of the v1 commit-status pending
-// while still blocking merge (any non-completed check_run is
-// not-passing for required check evaluation).
+// pending → status: queued (non-terminal, no conclusion). See
+// docs/lessons/2026-05-06-check-run-pending-state-mapping.md for the
+// experiments behind this choice (action_required and status: waiting
+// were both tried and rejected).
 //
 // success / failure → status: completed with the same-named conclusion.
 const stateToCheckRunFields = (
@@ -130,6 +118,58 @@ export const writeCheckRun = async (
         external_id: CHECK_RUN_EXTERNAL_ID,
         output,
         details_url
+      }) as Promise<unknown>,
+    retryOptions
+  )
+}
+
+export type MarkCheckRunStaleInput = {
+  owner: string
+  repo: string
+  sha: string
+  name: string
+}
+
+// Marks the aggregated check_run on a previous SHA as `conclusion: stale`
+// so the PR's Commits tab no longer shows that SHA's row as a yellow-dot
+// queued entry forever. Called on `pull_request.synchronize` with the
+// payload's `before` SHA; no-ops silently if the previous SHA has no
+// matching check_run (e.g. the action wasn't installed when that SHA
+// was HEAD, or someone force-pushed and `before` is a SHA the action
+// never wrote to).
+export const markCheckRunStale = async (
+  octokit: OctokitLike,
+  input: MarkCheckRunStaleInput,
+  retryOptions: { retries: number; baseDelayMs: number } = {
+    retries: 3,
+    baseDelayMs: 500
+  }
+): Promise<void> => {
+  const { owner, repo, sha, name } = input
+  const list = await withRetry(
+    () =>
+      octokit.rest.checks.listForRef({
+        owner,
+        repo,
+        ref: sha,
+        check_name: name,
+        per_page: 100
+      }),
+    retryOptions
+  )
+  const existing = list.data.check_runs.find(
+    (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
+  )
+  if (existing === undefined) return
+
+  await withRetry(
+    () =>
+      octokit.rest.checks.update({
+        owner,
+        repo,
+        check_run_id: existing.id,
+        status: 'completed',
+        conclusion: 'stale'
       }) as Promise<unknown>,
     retryOptions
   )
