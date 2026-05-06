@@ -5,7 +5,7 @@ const raw = (override: Partial<RawInputs> = {}): RawInputs => ({
   context: 'automerge-gate/all-passed',
   ignoreApps: '',
   ignoreChecks: '',
-  mode: 'main-gate',
+  gate: 'main',
   token: 'tok',
   pollIntervalSeconds: '30',
   ...override
@@ -50,13 +50,14 @@ describe('parseInputs', () => {
     )
   })
 
-  it("accepts mode = 'main-gate' or 'fork-gate'", () => {
-    expect(parseInputs(raw({ mode: 'main-gate' })).mode).toBe('main-gate')
-    expect(parseInputs(raw({ mode: 'fork-gate' })).mode).toBe('fork-gate')
+  it("accepts gate = 'main' or 'fork'", () => {
+    expect(parseInputs(raw({ gate: 'main' })).gate).toBe('main')
+    expect(parseInputs(raw({ gate: 'fork' })).gate).toBe('fork')
   })
 
-  it('throws on invalid mode', () => {
-    expect(() => parseInputs(raw({ mode: 'maybe' }))).toThrow(/mode/)
-    expect(() => parseInputs(raw({ mode: '' }))).toThrow(/mode/)
+  it('throws on invalid gate', () => {
+    expect(() => parseInputs(raw({ gate: 'main-gate' }))).toThrow(/gate/)
+    expect(() => parseInputs(raw({ gate: 'maybe' }))).toThrow(/gate/)
+    expect(() => parseInputs(raw({ gate: '' }))).toThrow(/gate/)
   })
 })

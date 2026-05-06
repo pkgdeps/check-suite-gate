@@ -3,6 +3,8 @@ name: test-self
 on:
   pull_request:
     types: [opened, synchronize, reopened, auto_merge_enabled]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   checks: write
@@ -10,11 +12,17 @@ permissions:
   actions: read
 
 concurrency:
-  group: automerge-gate-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   gate:
+    # Skip review submissions that aren't Approves. on: can't filter
+    # review.state, so we filter at job level to avoid spinning up the
+    # runner for commented/changes_requested reviews.
+    if: >-
+      github.event_name != 'pull_request_review'
+      || github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -29,6 +37,6 @@ jobs:
       - name: Self-host gate
         uses: ./
         with:
-          mode: main-gate
+          gate: main
           context: 'automerge-gate/self-test'
           ignore-checks: 'automerge-gate/self-test'

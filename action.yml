@@ -29,8 +29,8 @@ inputs:
     description: 'check_run name patterns to exclude. Glob (* / ?) supported. Comma-separated or newline-separated.'
     required: false
     default: ''
-  mode:
-    description: 'Gating mode. "main-gate" writes the aggregated check_run (same-repo PRs). "fork-gate" skips check_run writes and lets the job''s own check_run conclusion be the gate (fork PRs whose token is read-only). Required — use one mode per job in the 2-job pattern.'
+  gate:
+    description: 'Gate variant. "main" writes the aggregated check_run (used by the main-gate job for same-repo PRs, where the token has checks:write). "fork" skips the check_run write so the gate is the job''s own check_run conclusion (used by the fork-gate job for fork PRs with a read-only token). Required — use one variant per job in the 2-job pattern.'
     required: true
   token:
     description: 'GitHub token used to read checks and (when permitted) write the aggregated check_run'

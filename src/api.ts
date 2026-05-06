@@ -75,6 +75,17 @@ export type CheckRunListForRefParams = {
   per_page?: number
 }
 
+export type ReviewListItem = {
+  state: string
+  submitted_at: string | null
+  user: { login: string } | null
+  // GitHub's classification of the reviewer's relationship to the
+  // repository. Used to skip reviews from drive-by users (CONTRIBUTOR /
+  // NONE / FIRST_TIME_CONTRIBUTOR / MANNEQUIN) so a non-authorized
+  // Approve doesn't satisfy the merge-intent gate.
+  author_association: string
+}
+
 export type OctokitLike = {
   rest: {
     checks: {
@@ -95,6 +106,26 @@ export type OctokitLike = {
       ) => Promise<{ data: { check_runs: CheckRunListItem[] } }>
       create: (params: CheckRunCreateParams) => Promise<unknown>
       update: (params: CheckRunUpdateParams) => Promise<unknown>
+    }
+    pulls: {
+      listReviews: (params: {
+        owner: string
+        repo: string
+        pull_number: number
+        per_page?: number
+      }) => Promise<{ data: ReviewListItem[] }>
+    }
+    repos: {
+      getCollaboratorPermissionLevel: (params: {
+        owner: string
+        repo: string
+        username: string
+      }) => Promise<{
+        data: {
+          permission: 'admin' | 'write' | 'read' | 'none' | string
+          role_name?: string
+        }
+      }>
     }
   }
   paginate: <T>(

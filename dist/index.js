@@ -17581,12 +17581,12 @@ var require_lib = __commonJS({
             throw new Error("Client has already been disposed.");
           }
           const parsedUrl = new URL(requestUrl);
-          let info2 = this._prepareRequest(verb, parsedUrl, headers);
+          let info4 = this._prepareRequest(verb, parsedUrl, headers);
           const maxTries = this._allowRetries && RetryableHttpVerbs.includes(verb) ? this._maxRetries + 1 : 1;
           let numTries = 0;
           let response;
           do {
-            response = yield this.requestRaw(info2, data);
+            response = yield this.requestRaw(info4, data);
             if (response && response.message && response.message.statusCode === HttpCodes.Unauthorized) {
               let authenticationHandler;
               for (const handler of this.handlers) {
@@ -17596,7 +17596,7 @@ var require_lib = __commonJS({
                 }
               }
               if (authenticationHandler) {
-                return authenticationHandler.handleAuthentication(this, info2, data);
+                return authenticationHandler.handleAuthentication(this, info4, data);
               } else {
                 return response;
               }
@@ -17619,8 +17619,8 @@ var require_lib = __commonJS({
                   }
                 }
               }
-              info2 = this._prepareRequest(verb, parsedRedirectUrl, headers);
-              response = yield this.requestRaw(info2, data);
+              info4 = this._prepareRequest(verb, parsedRedirectUrl, headers);
+              response = yield this.requestRaw(info4, data);
               redirectsRemaining--;
             }
             if (!response.message.statusCode || !HttpResponseRetryCodes.includes(response.message.statusCode)) {
@@ -17649,7 +17649,7 @@ var require_lib = __commonJS({
        * @param info
        * @param data
        */
-      requestRaw(info2, data) {
+      requestRaw(info4, data) {
         return __awaiter(this, void 0, void 0, function* () {
           return new Promise((resolve, reject) => {
             function callbackForResult(err, res) {
@@ -17661,7 +17661,7 @@ var require_lib = __commonJS({
                 resolve(res);
               }
             }
-            this.requestRawWithCallback(info2, data, callbackForResult);
+            this.requestRawWithCallback(info4, data, callbackForResult);
           });
         });
       }
@@ -17671,12 +17671,12 @@ var require_lib = __commonJS({
        * @param data
        * @param onResult
        */
-      requestRawWithCallback(info2, data, onResult) {
+      requestRawWithCallback(info4, data, onResult) {
         if (typeof data === "string") {
-          if (!info2.options.headers) {
-            info2.options.headers = {};
+          if (!info4.options.headers) {
+            info4.options.headers = {};
           }
-          info2.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
+          info4.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
         }
         let callbackCalled = false;
         function handleResult(err, res) {
@@ -17685,7 +17685,7 @@ var require_lib = __commonJS({
             onResult(err, res);
           }
         }
-        const req = info2.httpModule.request(info2.options, (msg) => {
+        const req = info4.httpModule.request(info4.options, (msg) => {
           const res = new HttpClientResponse(msg);
           handleResult(void 0, res);
         });
@@ -17697,7 +17697,7 @@ var require_lib = __commonJS({
           if (socket) {
             socket.end();
           }
-          handleResult(new Error(`Request timeout: ${info2.options.path}`));
+          handleResult(new Error(`Request timeout: ${info4.options.path}`));
         });
         req.on("error", function(err) {
           handleResult(err);
@@ -17733,27 +17733,27 @@ var require_lib = __commonJS({
         return this._getProxyAgentDispatcher(parsedUrl, proxyUrl);
       }
       _prepareRequest(method, requestUrl, headers) {
-        const info2 = {};
-        info2.parsedUrl = requestUrl;
-        const usingSsl = info2.parsedUrl.protocol === "https:";
-        info2.httpModule = usingSsl ? https : http;
+        const info4 = {};
+        info4.parsedUrl = requestUrl;
+        const usingSsl = info4.parsedUrl.protocol === "https:";
+        info4.httpModule = usingSsl ? https : http;
         const defaultPort = usingSsl ? 443 : 80;
-        info2.options = {};
-        info2.options.host = info2.parsedUrl.hostname;
-        info2.options.port = info2.parsedUrl.port ? parseInt(info2.parsedUrl.port) : defaultPort;
-        info2.options.path = (info2.parsedUrl.pathname || "") + (info2.parsedUrl.search || "");
-        info2.options.method = method;
-        info2.options.headers = this._mergeHeaders(headers);
+        info4.options = {};
+        info4.options.host = info4.parsedUrl.hostname;
+        info4.options.port = info4.parsedUrl.port ? parseInt(info4.parsedUrl.port) : defaultPort;
+        info4.options.path = (info4.parsedUrl.pathname || "") + (info4.parsedUrl.search || "");
+        info4.options.method = method;
+        info4.options.headers = this._mergeHeaders(headers);
         if (this.userAgent != null) {
-          info2.options.headers["user-agent"] = this.userAgent;
+          info4.options.headers["user-agent"] = this.userAgent;
         }
-        info2.options.agent = this._getAgent(info2.parsedUrl);
+        info4.options.agent = this._getAgent(info4.parsedUrl);
         if (this.handlers) {
           for (const handler of this.handlers) {
-            handler.prepareRequest(info2.options);
+            handler.prepareRequest(info4.options);
           }
         }
-        return info2;
+        return info4;
       }
       _mergeHeaders(headers) {
         if (this.requestOptions && this.requestOptions.headers) {
@@ -19735,18 +19735,18 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       (0, command_1.issueCommand)("error", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
     exports2.error = error;
-    function warning2(message, properties = {}) {
+    function warning3(message, properties = {}) {
       (0, command_1.issueCommand)("warning", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
-    exports2.warning = warning2;
+    exports2.warning = warning3;
     function notice(message, properties = {}) {
       (0, command_1.issueCommand)("notice", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
     exports2.notice = notice;
-    function info2(message) {
+    function info4(message) {
       process.stdout.write(message + os.EOL);
     }
-    exports2.info = info2;
+    exports2.info = info4;
     function startGroup2(name) {
       (0, command_1.issue)("group", name);
     }
@@ -23878,7 +23878,7 @@ var require_github = __commonJS({
 });
 
 // src/index.ts
-var core = __toESM(require_core());
+var core3 = __toESM(require_core());
 var github = __toESM(require_github());
 
 // src/filter.ts
@@ -23907,11 +23907,9 @@ var parsePositiveInt = (raw, name) => {
   }
   return n;
 };
-var parseMode = (raw) => {
-  if (raw === "main-gate" || raw === "fork-gate") return raw;
-  throw new Error(
-    `input \`mode\` must be "main-gate" or "fork-gate" (got: "${raw}")`
-  );
+var parseGate = (raw) => {
+  if (raw === "main" || raw === "fork") return raw;
+  throw new Error(`input \`gate\` must be "main" or "fork" (got: "${raw}")`);
 };
 var parseInputs = (raw) => {
   if (raw.token.trim().length === 0) {
@@ -23921,7 +23919,7 @@ var parseInputs = (raw) => {
     context: raw.context,
     ignoreApps: parseList(raw.ignoreApps),
     ignoreChecks: parseList(raw.ignoreChecks),
-    mode: parseMode(raw.mode),
+    gate: parseGate(raw.gate),
     token: raw.token,
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
@@ -24084,6 +24082,7 @@ var pollUntilComplete = async (fetchRuns, options) => {
 };
 
 // src/check-run.ts
+var core = __toESM(require_core());
 var buildTargetUrl = (input) => `${input.serverUrl}/${input.repository}/actions/runs/${input.runId}/attempts/${input.runAttempt}`;
 var CHECK_RUN_EXTERNAL_ID = "automerge-gate";
 var stateToCheckRunFields = (state) => {
@@ -24096,7 +24095,10 @@ var writeCheckRun = async (octokit, input, retryOptions = {
 }) => {
   const { owner, repo, sha, state, name, output, details_url } = input;
   const { status, conclusion } = stateToCheckRunFields(state);
-  await withRetry(
+  core.info(
+    `writeCheckRun: POST check-runs name=${name} sha=${sha} status=${status} conclusion=${conclusion ?? "-"}`
+  );
+  const result = await withRetry(
     () => octokit.rest.checks.create({
       owner,
       repo,
@@ -24110,6 +24112,16 @@ var writeCheckRun = async (octokit, input, retryOptions = {
     }),
     retryOptions
   );
+  const data = result?.data;
+  if (data !== void 0) {
+    core.info(
+      `writeCheckRun: created check_run id=${data.id} suite_id=${data.check_suite?.id} status=${data.status} conclusion=${data.conclusion ?? "-"} url=${data.html_url ?? "-"}`
+    );
+  } else {
+    core.warning(
+      "writeCheckRun: API returned no data field \u2014 unable to confirm check_run id / suite assignment"
+    );
+  }
 };
 var markCheckRunStale = async (octokit, input, retryOptions = {
   retries: 3,
@@ -24129,7 +24141,13 @@ var markCheckRunStale = async (octokit, input, retryOptions = {
   const ours = list.data.check_runs.filter(
     (r) => r.external_id === CHECK_RUN_EXTERNAL_ID
   );
+  core.info(
+    `markCheckRunStale: sha=${sha} found ${ours.length} matching check_run(s) with our external_id (out of ${list.data.check_runs.length} listed by name)`
+  );
   for (const run2 of ours) {
+    core.info(
+      `markCheckRunStale: PATCH check_run id=${run2.id} \u2192 conclusion: cancelled`
+    );
     await withRetry(
       () => octokit.rest.checks.update({
         owner,
@@ -24143,17 +24161,167 @@ var markCheckRunStale = async (octokit, input, retryOptions = {
   }
 };
 
+// src/mode.ts
+var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
+var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
+var KNOWN_REVIEW_STATES = [
+  "approved",
+  "changes_requested",
+  "commented",
+  "dismissed",
+  "pending"
+];
+var parseReviewState = (raw) => {
+  if (raw === void 0 || raw === null) return null;
+  return KNOWN_REVIEW_STATES.includes(raw) ? raw : null;
+};
+var determineMode = (input) => {
+  const {
+    eventName,
+    action,
+    reviewState,
+    isHeadShaEvent,
+    isAutoMergeAlreadyEnabled,
+    isApproved
+  } = input;
+  if (eventName === "pull_request_review") {
+    if (action !== "submitted" || reviewState !== "approved") {
+      return {
+        mode: "skip",
+        reason: `pull_request_review ignored (action=${action}, state=${reviewState ?? "null"})`
+      };
+    }
+    if (!isApproved) {
+      return {
+        mode: "skip",
+        reason: "pull_request_review.submitted with state=approved, but no reviewer with write access has an active Approve \u2014 treating as drive-by review"
+      };
+    }
+    return {
+      mode: "polling",
+      reason: "reviewer Approved with write access (interpreted as merge intent \u2014 pull_request_review.submitted with state=approved)"
+    };
+  }
+  if (action === "auto_merge_enabled") {
+    return {
+      mode: "polling",
+      reason: "Enable auto-merge clicked (pull_request.auto_merge_enabled)"
+    };
+  }
+  if (isHeadShaEvent) {
+    if (isAutoMergeAlreadyEnabled) {
+      return {
+        mode: "polling",
+        reason: `new HEAD landed (action=${action}) while auto-merge is already enabled \u2014 re-evaluating`
+      };
+    }
+    if (isApproved) {
+      return {
+        mode: "polling",
+        reason: `new HEAD landed (action=${action}) on a PR that already has an active Approve review \u2014 re-evaluating`
+      };
+    }
+    return {
+      mode: "pending",
+      reason: `new HEAD landed (action=${action}); waiting for merge intent (Enable auto-merge or an Approve review)`
+    };
+  }
+  return {
+    mode: "skip",
+    reason: `unsupported activity (eventName=${eventName}, action=${action})`
+  };
+};
+
+// src/review-status.ts
+var core2 = __toESM(require_core());
+var WRITE_PERMISSIONS = /* @__PURE__ */ new Set(["admin", "write"]);
+var WRITE_ROLE_NAMES = /* @__PURE__ */ new Set(["admin", "maintain", "write"]);
+var hasWritePermission = async (octokit, owner, repo, username, cache, retryOptions) => {
+  const cached = cache.get(username);
+  if (cached !== void 0) return cached;
+  try {
+    const result = await withRetry(
+      () => octokit.rest.repos.getCollaboratorPermissionLevel({
+        owner,
+        repo,
+        username
+      }),
+      retryOptions
+    );
+    const ok = WRITE_PERMISSIONS.has(result.data.permission) || result.data.role_name !== void 0 && WRITE_ROLE_NAMES.has(result.data.role_name);
+    core2.info(
+      `hasWritePermission: ${username} permission=${result.data.permission} role_name=${result.data.role_name ?? "-"} \u2192 ${ok ? "WRITE" : "no-write"}`
+    );
+    cache.set(username, ok);
+    return ok;
+  } catch (err) {
+    if (err.status === 404) {
+      core2.info(`hasWritePermission: ${username} not a collaborator (404)`);
+      cache.set(username, false);
+      return false;
+    }
+    throw err;
+  }
+};
+var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = {
+  retries: 3,
+  baseDelayMs: 500
+}) => {
+  const reviews = await withRetry(
+    () => octokit.paginate(
+      octokit.rest.pulls.listReviews,
+      { owner, repo, pull_number: pullNumber, per_page: 100 }
+    ),
+    retryOptions
+  );
+  core2.info(
+    `hasActiveApproval: PR #${pullNumber} has ${reviews.length} total reviews`
+  );
+  const latestPerUser = /* @__PURE__ */ new Map();
+  for (const r of reviews) {
+    if (r.state === "COMMENTED") continue;
+    const login = r.user?.login;
+    if (login === void 0 || login === null) continue;
+    latestPerUser.set(login, r);
+  }
+  core2.info(
+    `hasActiveApproval: latest non-COMMENTED review per user = ${[...latestPerUser.entries()].map(([login, r]) => `${login}:${r.state}`).join(", ") || "(none)"}`
+  );
+  const permCache = /* @__PURE__ */ new Map();
+  for (const [login, r] of latestPerUser) {
+    if (r.state !== "APPROVED") continue;
+    const ok = await hasWritePermission(
+      octokit,
+      owner,
+      repo,
+      login,
+      permCache,
+      retryOptions
+    );
+    core2.info(
+      `hasActiveApproval: ${login} APPROVED, write_access=${ok ? "yes" : "no"}`
+    );
+    if (ok) return true;
+  }
+  return false;
+};
+
 // src/index.ts
 var ZERO_SHA = "0000000000000000000000000000000000000000";
-var buildPendingOutput = () => ({
-  title: "Waiting for Enable auto-merge",
+var buildPendingOutput = (reason) => ({
+  title: "Waiting for Approve or Enable auto-merge",
   summary: [
-    "This required check is waiting for the maintainer to click **Enable auto-merge** on this PR.",
+    "This required check is waiting for any of the following merge-intent signals:",
     "",
-    "Once enabled, the gate polls every other check on the PR and turns green or red based on the aggregated result. The maintainer doesn't need to wait \u2014 auto-merge will trigger as soon as the gate turns green."
+    "- A reviewer submits an **Approve** review, or",
+    "- A maintainer clicks **Enable auto-merge**",
+    "",
+    "Once either lands, the gate polls every other check on the PR and turns green or red based on the aggregated result.",
+    "",
+    `**Trigger:** ${reason}`
   ].join("\n")
 });
-var buildPollingOutput = (state, stats) => {
+var buildPollingOutput = (state, stats, reason) => {
   const title = state === "success" ? "All checks passed" : "At least one check failed";
   const headline = state === "success" ? `All ${stats.evaluated} evaluated checks passed.` : `${stats.evaluated} evaluated checks include at least one failure.`;
   const summary2 = [
@@ -24164,28 +24332,20 @@ var buildPollingOutput = (state, stats) => {
     `| Total (pre-filter) | ${stats.total} |`,
     `| Evaluated (post-filter) | ${stats.evaluated} |`,
     `| Completed | ${stats.completed} |`,
-    `| Polling iterations | ${stats.iterations} |`
+    `| Polling iterations | ${stats.iterations} |`,
+    "",
+    `**Trigger:** ${reason}`
   ].join("\n");
   return { title, summary: summary2 };
 };
-var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
-var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
-var determineMode = (input) => {
-  const { action, isHeadShaEvent, isAutoMergeAlreadyEnabled } = input;
-  if (action === "auto_merge_enabled") return "polling";
-  if (isHeadShaEvent) {
-    return isAutoMergeAlreadyEnabled ? "polling" : "pending";
-  }
-  return "skip";
-};
 var writeSummary = async (input) => {
   const stateEmoji = input.state === "success" ? "\u2705" : input.state === "failure" ? "\u274C" : "\u{1F7E1}";
-  await core.summary.addHeading(`${stateEmoji} automerge-gate: ${input.state}`).addTable([
+  await core3.summary.addHeading(`${stateEmoji} automerge-gate: ${input.state}`).addTable([
     [
       { data: "Field", header: true },
       { data: "Value", header: true }
     ],
-    ["mode", input.mode],
+    ["action mode", input.mode],
     ["state", input.state],
     ["total checks (pre-filter)", String(input.total)],
     ["evaluated checks (post-filter)", String(input.evaluated)],
@@ -24195,29 +24355,33 @@ var writeSummary = async (input) => {
 };
 var run = async () => {
   const inputs = parseInputs({
-    context: core.getInput("context"),
-    ignoreApps: core.getInput("ignore-apps"),
-    ignoreChecks: core.getInput("ignore-checks"),
-    mode: core.getInput("mode"),
-    token: core.getInput("token"),
-    pollIntervalSeconds: core.getInput("poll-interval-seconds")
+    context: core3.getInput("context"),
+    ignoreApps: core3.getInput("ignore-apps"),
+    ignoreChecks: core3.getInput("ignore-checks"),
+    gate: core3.getInput("gate"),
+    token: core3.getInput("token"),
+    pollIntervalSeconds: core3.getInput("poll-interval-seconds")
   });
   const ctx = github.context;
-  if (ctx.eventName !== "pull_request") {
-    core.warning(
-      `automerge-gate only handles pull_request events; got "${ctx.eventName}". Skipping.`
+  const SUPPORTED_EVENTS = ["pull_request", "pull_request_review"];
+  if (!SUPPORTED_EVENTS.includes(ctx.eventName)) {
+    core3.warning(
+      `automerge-gate only handles pull_request / pull_request_review events; got "${ctx.eventName}". Skipping.`
     );
     return;
   }
   const action = ctx.payload.action ?? "";
   const pr = ctx.payload.pull_request;
   if (pr === void 0) {
-    core.setFailed("pull_request payload is missing");
+    core3.setFailed("pull_request payload is missing");
     return;
   }
-  core.startGroup("Setup");
-  core.info(`Event: ${ctx.eventName} (action=${action})`);
-  core.info(`PR #${pr.number}, head SHA ${pr.head.sha}`);
+  const reviewState = ctx.eventName === "pull_request_review" ? parseReviewState(
+    ctx.payload.review?.state
+  ) : null;
+  core3.startGroup("Setup");
+  core3.info(`Event: ${ctx.eventName} (action=${action})`);
+  core3.info(`PR #${pr.number}, head SHA ${pr.head.sha}`);
   const sha = pr.head.sha;
   const runId = Number.parseInt(process.env.GITHUB_RUN_ID ?? "0", 10);
   const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10);
@@ -24230,15 +24394,20 @@ var run = async () => {
     runAttempt
   });
   const octokit = github.getOctokit(inputs.token);
-  const mode = determineMode({
+  const isHeadShaEvent = isHeadShaAction(action);
+  const needsApprovalLookup = isHeadShaEvent && pr.auto_merge === null || ctx.eventName === "pull_request_review";
+  const isApproved = needsApprovalLookup ? await hasActiveApproval(octokit, ctx.repo.owner, ctx.repo.repo, pr.number) : false;
+  const { mode, reason } = determineMode({
+    eventName: ctx.eventName,
     action,
-    isHeadShaEvent: isHeadShaAction(action),
-    isAutoMergeAlreadyEnabled: pr.auto_merge !== null
+    reviewState,
+    isHeadShaEvent,
+    isAutoMergeAlreadyEnabled: pr.auto_merge !== null,
+    isApproved
   });
-  core.info(`Mode: ${mode}`);
-  core.endGroup();
+  core3.info(`Mode: ${mode} \u2014 ${reason}`);
+  core3.endGroup();
   if (mode === "skip") {
-    core.warning(`Skipping unsupported pull_request action: "${action}"`);
     await writeSummary({
       state: "skipped",
       mode: "skip",
@@ -24249,7 +24418,7 @@ var run = async () => {
     });
     return;
   }
-  if (inputs.mode === "main-gate" && action === "synchronize") {
+  if (inputs.gate === "main" && action === "synchronize") {
     const before = ctx.payload.before;
     if (before !== void 0 && before !== ZERO_SHA && before !== sha) {
       await markCheckRunStale(octokit, {
@@ -24261,22 +24430,22 @@ var run = async () => {
     }
   }
   if (mode === "pending") {
-    if (inputs.mode === "main-gate") {
+    if (inputs.gate === "main") {
       await writeCheckRun(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
         sha,
         state: "pending",
         name: inputs.context,
-        output: buildPendingOutput(),
+        output: buildPendingOutput(reason),
         details_url: targetUrl
       });
     }
-    core.setOutput("state", "pending");
-    core.setOutput("total-checks", "0");
-    core.setOutput("evaluated-checks", "0");
-    core.setOutput("completed-checks", "0");
-    core.setOutput("polled-iterations", "0");
+    core3.setOutput("state", "pending");
+    core3.setOutput("total-checks", "0");
+    core3.setOutput("evaluated-checks", "0");
+    core3.setOutput("completed-checks", "0");
+    core3.setOutput("polled-iterations", "0");
     await writeSummary({
       state: "pending",
       mode: "pending",
@@ -24322,35 +24491,39 @@ var run = async () => {
       return afterSelf;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      core.warning(`API fetch failed during polling (will retry): ${message}`);
+      core3.warning(`API fetch failed during polling (will retry): ${message}`);
       throw err;
     }
   };
-  core.startGroup("Polling");
+  core3.startGroup("Polling");
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
     onIteration: (s) => {
-      core.info(
+      core3.info(
         `Poll #${s.iteration}: state=${s.state}, ${s.completed}/${s.total} completed`
       );
     }
   });
-  core.endGroup();
-  core.startGroup("Result");
-  core.info(
+  core3.endGroup();
+  core3.startGroup("Result");
+  core3.info(
     `Polling finished: state=${pollResult.state}, iterations=${pollResult.iterations}`
   );
-  core.info(
+  core3.info(
     `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
   );
-  core.endGroup();
-  if (inputs.mode === "main-gate") {
-    const pollingOutput = pollResult.state === "pending" ? buildPendingOutput() : buildPollingOutput(pollResult.state, {
-      total: lastTotal,
-      evaluated: lastEvaluated,
-      completed: lastCompleted,
-      iterations: pollResult.iterations
-    });
+  core3.endGroup();
+  if (inputs.gate === "main") {
+    const pollingOutput = pollResult.state === "pending" ? buildPendingOutput(reason) : buildPollingOutput(
+      pollResult.state,
+      {
+        total: lastTotal,
+        evaluated: lastEvaluated,
+        completed: lastCompleted,
+        iterations: pollResult.iterations
+      },
+      reason
+    );
     await writeCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
@@ -24361,11 +24534,11 @@ var run = async () => {
       details_url: targetUrl
     });
   }
-  core.setOutput("state", pollResult.state);
-  core.setOutput("total-checks", String(lastTotal));
-  core.setOutput("evaluated-checks", String(lastEvaluated));
-  core.setOutput("completed-checks", String(lastCompleted));
-  core.setOutput("polled-iterations", String(pollResult.iterations));
+  core3.setOutput("state", pollResult.state);
+  core3.setOutput("total-checks", String(lastTotal));
+  core3.setOutput("evaluated-checks", String(lastEvaluated));
+  core3.setOutput("completed-checks", String(lastCompleted));
+  core3.setOutput("polled-iterations", String(pollResult.iterations));
   await writeSummary({
     state: pollResult.state,
     mode: "polling",
@@ -24375,16 +24548,16 @@ var run = async () => {
     iterations: pollResult.iterations
   });
   if (pollResult.state === "failure") {
-    core.setFailed(
+    core3.setFailed(
       `automerge-gate: aggregated state is failure (${lastEvaluated} checks evaluated)`
     );
   }
 };
 run().catch((err) => {
   if (err instanceof Error) {
-    core.setFailed(err.message);
+    core3.setFailed(err.message);
   } else {
-    core.setFailed(String(err));
+    core3.setFailed(String(err));
   }
 });
 /*! Bundled license information:

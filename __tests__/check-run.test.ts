@@ -67,8 +67,8 @@ describe('writeCheckRun', () => {
       state: 'pending',
       name: 'automerge-gate/all-passed',
       output: {
-        title: 'Waiting for Enable auto-merge',
-        summary: 'Click Enable auto-merge.'
+        title: 'Waiting for Approve or Enable auto-merge',
+        summary: 'Approve or click Enable auto-merge.'
       },
       details_url: 'https://example.com'
     })
@@ -84,8 +84,8 @@ describe('writeCheckRun', () => {
       conclusion: undefined,
       external_id: CHECK_RUN_EXTERNAL_ID,
       output: {
-        title: 'Waiting for Enable auto-merge',
-        summary: 'Click Enable auto-merge.'
+        title: 'Waiting for Approve or Enable auto-merge',
+        summary: 'Approve or click Enable auto-merge.'
       },
       details_url: 'https://example.com'
     })

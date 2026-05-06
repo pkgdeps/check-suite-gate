@@ -34,11 +34,13 @@ sequenceDiagram
 ```
 
 1. A PR is merge-blocked from the moment it's opened. The gate writes a check_run with `status: queued` and a "Click Enable Auto Merge to start the gate." summary.
-2. When the maintainer clicks **Enable Auto Merge**, the gate workflow polls every check on the PR.
-3. It updates the same check_run with the verdict (`conclusion: success` or `failure`).
+2. When merge intent is signalled — the maintainer clicks **Enable Auto Merge**, *or* a reviewer submits an **Approve** review — the gate workflow polls every check on the PR.
+3. It writes a fresh check_run with the verdict (`conclusion: success` or `failure`).
 4. GitHub's native auto-merge merges the PR as soon as the required check turns green.
 
 If Auto Merge is already enabled when you push a new commit, the gate re-evaluates the new SHA automatically — no need to disable→enable.
+
+Teams whose Approve culture is "LGTM, but not necessarily merge now" can drop `pull_request_review` from the workflow's `on:` to disable the Approve trigger; the workflow YAML is the toggle.
 
 Same-repo and fork PRs are both handled by the same workflow via a 2-job `if:` mutex; see [Usage](#usage).
 
@@ -56,15 +58,19 @@ name: automerge-gate
 on:
   pull_request:
     types: [opened, synchronize, reopened, auto_merge_enabled]
+  pull_request_review:
+    types: [submitted]
 
 concurrency:
-  group: automerge-gate-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   # Same-repo PR. Token has checks:write, so the action writes the aggregated check_run directly.
   main-gate:
-    if: github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+    if: >-
+      github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+      && (github.event_name != 'pull_request_review' || github.event.review.state == 'approved')
     runs-on: ubuntu-latest
     # timeout-minutes is the action's only timeout. Bound it to your CI's worst case.
     timeout-minutes: 10
@@ -75,12 +81,14 @@ jobs:
     steps:
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
-          mode: main-gate
+          gate: main
           context: 'automerge-gate/all-passed'
 
   # Fork PR. Token is read-only, so the gate is the job's own check_run conclusion (named after the job).
   fork-gate:
-    if: github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
+    if: >-
+      github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
+      && (github.event_name != 'pull_request_review' || github.event.review.state == 'approved')
     name: automerge-gate/all-passed
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -91,8 +99,10 @@ jobs:
     steps:
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
-          mode: fork-gate
+          gate: fork
 ```
+
+The `pull_request_review.state == 'approved'` clause filters out non-Approve review submissions (`commented`, `changes_requested`) at the job level, so the runner doesn't even spin up for those. GitHub's `on:` block can filter activity types but not review state, so the filter has to live in the job's `if:`.
 
 Why two jobs:
 
@@ -134,7 +144,7 @@ On any PR you want to ship:
 | `poll-interval-seconds` | no | `30` | How often to re-fetch check status |
 | `ignore-apps` | no | (empty) | GitHub App slugs to exclude. Comma-separated **or newline-separated** |
 | `ignore-checks` | no | (empty) | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated** |
-| `mode` | **yes** | (none) | `main-gate` / `fork-gate`. `main-gate` writes the aggregated check_run (used by the `main-gate` job for same-repo PRs). `fork-gate` skips the check_run write entirely so the gate is the job's own check_run conclusion (used by the `fork-gate` job whose `name:` matches the required check, for fork PRs with read-only token). |
+| `gate` | **yes** | (none) | `main` / `fork`. `main` writes the aggregated check_run (used by the `main-gate` job for same-repo PRs). `fork` skips the check_run write entirely so the gate is the job's own check_run conclusion (used by the `fork-gate` job whose `name:` matches the required check, for fork PRs with read-only token). |
 | `token` | no | `${{ github.token }}` | GitHub token used to read checks and (when permitted) write the aggregated check_run |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
@@ -153,7 +163,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 ```yaml
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
-          mode: main-gate
+          gate: main
           ignore-apps: |
             dependabot
             renovate
@@ -164,7 +174,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 ```yaml
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
-          mode: main-gate
+          gate: main
           ignore-checks: |
             optional-*
             docs-only
@@ -177,7 +187,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 ```yaml
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
-          mode: main-gate
+          gate: main
           poll-interval-seconds: '10'
 ```
 
