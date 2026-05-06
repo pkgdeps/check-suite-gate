@@ -75,6 +75,12 @@ export type CheckRunListForRefParams = {
   per_page?: number
 }
 
+export type ReviewListItem = {
+  state: string
+  submitted_at: string | null
+  user: { login: string } | null
+}
+
 export type OctokitLike = {
   rest: {
     checks: {
@@ -95,6 +101,14 @@ export type OctokitLike = {
       ) => Promise<{ data: { check_runs: CheckRunListItem[] } }>
       create: (params: CheckRunCreateParams) => Promise<unknown>
       update: (params: CheckRunUpdateParams) => Promise<unknown>
+    }
+    pulls: {
+      listReviews: (params: {
+        owner: string
+        repo: string
+        pull_number: number
+        per_page?: number
+      }) => Promise<{ data: ReviewListItem[] }>
     }
   }
   paginate: <T>(

@@ -24150,7 +24150,8 @@ var determineMode = (input) => {
     action,
     reviewState,
     isHeadShaEvent,
-    isAutoMergeAlreadyEnabled
+    isAutoMergeAlreadyEnabled,
+    isApproved
   } = input;
   if (eventName === "pull_request_review") {
     if (action === "submitted" && reviewState === "approved") {
@@ -24177,6 +24178,12 @@ var determineMode = (input) => {
         reason: `new HEAD landed (action=${action}) while auto-merge is already enabled \u2014 re-evaluating`
       };
     }
+    if (isApproved) {
+      return {
+        mode: "polling",
+        reason: `new HEAD landed (action=${action}) on a PR that already has an active Approve review \u2014 re-evaluating`
+      };
+    }
     return {
       mode: "pending",
       reason: `new HEAD landed (action=${action}); waiting for merge intent (Enable auto-merge or an Approve review)`
@@ -24186,6 +24193,30 @@ var determineMode = (input) => {
     mode: "skip",
     reason: `unsupported activity (eventName=${eventName}, action=${action})`
   };
+};
+
+// src/review-status.ts
+var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = {
+  retries: 3,
+  baseDelayMs: 500
+}) => {
+  const reviews = await withRetry(
+    () => octokit.paginate(
+      octokit.rest.pulls.listReviews,
+      { owner, repo, pull_number: pullNumber, per_page: 100 }
+    ),
+    retryOptions
+  );
+  const latestPerUser = /* @__PURE__ */ new Map();
+  for (const r of reviews) {
+    if (r.state === "COMMENTED") continue;
+    const login = r.user?.login ?? "<unknown>";
+    latestPerUser.set(login, r);
+  }
+  for (const r of latestPerUser.values()) {
+    if (r.state === "APPROVED") return true;
+  }
+  return false;
 };
 
 // src/index.ts
@@ -24267,12 +24298,20 @@ var run = async () => {
     runAttempt
   });
   const octokit = github.getOctokit(inputs.token);
+  const isHeadShaEvent = isHeadShaAction(action);
+  const isApproved = isHeadShaEvent && pr.auto_merge === null ? await hasActiveApproval(
+    octokit,
+    ctx.repo.owner,
+    ctx.repo.repo,
+    pr.number
+  ) : false;
   const { mode, reason } = determineMode({
     eventName: ctx.eventName,
     action,
     reviewState,
-    isHeadShaEvent: isHeadShaAction(action),
-    isAutoMergeAlreadyEnabled: pr.auto_merge !== null
+    isHeadShaEvent,
+    isAutoMergeAlreadyEnabled: pr.auto_merge !== null,
+    isApproved
   });
   core.info(`Mode: ${mode} \u2014 ${reason}`);
   core.endGroup();

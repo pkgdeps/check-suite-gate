@@ -18,6 +18,12 @@ export type DetermineModeInput = {
   reviewState: string | null
   isHeadShaEvent: boolean
   isAutoMergeAlreadyEnabled: boolean
+  // Whether the PR currently has at least one active Approve review,
+  // determined by re-querying the PR's reviews on each HEAD SHA event.
+  // This makes Approve a sticky merge-intent flag (the gate stays
+  // polling on subsequent pushes), instead of only firing once on the
+  // single pull_request_review.submitted event.
+  isApproved: boolean
 }
 
 export type DetermineModeResult = {
@@ -32,9 +38,11 @@ export type DetermineModeResult = {
 // three signals today:
 //
 //   1. `pull_request.auto_merge_enabled` — explicit "merge when ready".
-//   2. A new HEAD landed (opened / synchronize / reopened) on a PR that
-//      already has Auto Merge enabled — i.e., merge intent was signalled
-//      earlier and is still standing.
+//   2. A new HEAD landed (opened / synchronize / reopened) on a PR
+//      whose merge intent is still standing — i.e., Auto Merge is
+//      enabled, OR the PR already has an active Approve review. The
+//      Approve case is what makes the gate stay green across pushes
+//      instead of dropping back to pending after each commit.
 //   3. `pull_request_review` with `state: approved` — a reviewer
 //      Approved, which the action interprets as merge intent. (Teams
 //      whose Approve culture is "LGTM, but not necessarily merge now"
@@ -52,7 +60,8 @@ export const determineMode = (
     action,
     reviewState,
     isHeadShaEvent,
-    isAutoMergeAlreadyEnabled
+    isAutoMergeAlreadyEnabled,
+    isApproved
   } = input
   if (eventName === 'pull_request_review') {
     if (action === 'submitted' && reviewState === 'approved') {
@@ -78,6 +87,12 @@ export const determineMode = (
       return {
         mode: 'polling',
         reason: `new HEAD landed (action=${action}) while auto-merge is already enabled — re-evaluating`
+      }
+    }
+    if (isApproved) {
+      return {
+        mode: 'polling',
+        reason: `new HEAD landed (action=${action}) on a PR that already has an active Approve review — re-evaluating`
       }
     }
     return {

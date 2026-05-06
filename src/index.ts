@@ -19,6 +19,7 @@ import {
   type CheckRunOutput
 } from './check-run.js'
 import { determineMode, isHeadShaAction } from './mode.js'
+import { hasActiveApproval } from './review-status.js'
 
 const ZERO_SHA = '0000000000000000000000000000000000000000'
 
@@ -151,12 +152,28 @@ const run = async (): Promise<void> => {
 
   const octokit = github.getOctokit(inputs.token) as unknown as OctokitLike
 
+  // Approve is a sticky merge-intent signal: once a reviewer Approves,
+  // every subsequent push should re-evaluate (= polling), not drop back
+  // to pending. Query review state on HEAD SHA events to see if any
+  // approval is still active. Other event types don't need this lookup.
+  const isHeadShaEvent = isHeadShaAction(action)
+  const isApproved =
+    isHeadShaEvent && pr.auto_merge === null
+      ? await hasActiveApproval(
+          octokit,
+          ctx.repo.owner,
+          ctx.repo.repo,
+          pr.number
+        )
+      : false
+
   const { mode, reason } = determineMode({
     eventName: ctx.eventName,
     action,
     reviewState,
-    isHeadShaEvent: isHeadShaAction(action),
-    isAutoMergeAlreadyEnabled: pr.auto_merge !== null
+    isHeadShaEvent,
+    isAutoMergeAlreadyEnabled: pr.auto_merge !== null,
+    isApproved
   })
 
   core.info(`Mode: ${mode} — ${reason}`)
