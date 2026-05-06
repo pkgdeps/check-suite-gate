@@ -68,8 +68,11 @@ Note: GitHub rulesets only support AND across required checks (no OR / condition
 
 ## Usage
 
+### 1. Add the workflow
+
+Create `.github/workflows/automerge-gate.yaml` in your repository:
+
 ```yaml
-# .github/workflows/automerge-gate.yaml
 name: automerge-gate
 
 on:
@@ -107,7 +110,21 @@ jobs:
             ci / lint
 ```
 
-Then register `automerge-gate/all-passed` as a required status check in your ruleset / branch protection. The PR will be merge-blocked until a maintainer presses "Enable Auto Merge" and the gate writes a success status.
+Merge this to your default branch first — `pull_request` triggered workflows only fire when the workflow file already exists on the default branch.
+
+### 2. Register the aggregated status as a required check
+
+In your repository's **Settings → Rules → Rulesets** (or **Branches → Branch protection** on legacy setups), add a rule that requires the status check named `automerge-gate/all-passed` to pass. Note: a status context only appears in the picker after it has been written at least once, so open a PR after step 1 to get the gate to write a `pending` status, then come back and pick the context.
+
+This single context is now the only thing standing between a PR and merge. Any check that lands on the PR — Renovate, Codecov, your own workflows — gets aggregated into it.
+
+### 3. Use it on a PR
+
+1. Open a PR. The gate writes `pending` with description `Awaiting Auto Merge enable`. The PR is merge-blocked.
+2. Get the PR ready (review, fix, etc.).
+3. Click **Enable Auto Merge** when you're ready to merge.
+4. The gate flips into polling mode, waits for every check to complete, then writes `success` (or `failure`).
+5. On `success`, GitHub's native auto-merge fires immediately and merges the PR. On `failure`, auto-merge is blocked and you can fix and push again — the gate re-evaluates as soon as Auto Merge is still enabled.
 
 > [!IMPORTANT]
 > The action does **not** expose a timeout input. The job-level `timeout-minutes` is the only bound on how long the polling loop runs, and you should treat it as part of the action's configuration. There are no two timeouts to keep in sync — just one. If your CI runs longer than 10 minutes, raise `timeout-minutes` accordingly.
