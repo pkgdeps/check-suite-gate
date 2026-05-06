@@ -70,7 +70,7 @@ Note: GitHub rulesets only support AND across required checks (no OR / condition
 
 ### 1. Add the workflow
 
-Create `.github/workflows/automerge-gate.yaml` in your repository and merge it to your default branch (`pull_request` triggered workflows only fire when the workflow file already exists on the default branch):
+Create `.github/workflows/automerge-gate.yaml` in your repository:
 
 ```yaml
 name: automerge-gate
