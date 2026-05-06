@@ -24093,7 +24093,8 @@ var writeCommitStatus = async (octokit, input, retryOptions = {
 var PENDING_DESCRIPTION = "Awaiting Auto Merge enable";
 var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
 var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
-var determineMode = (action, isHeadShaEvent, isAutoMergeAlreadyEnabled) => {
+var determineMode = (input) => {
+  const { action, isHeadShaEvent, isAutoMergeAlreadyEnabled } = input;
   if (action === "auto_merge_enabled") return "polling";
   if (isHeadShaEvent) {
     return isAutoMergeAlreadyEnabled ? "polling" : "pending";
@@ -24168,11 +24169,11 @@ var run = async () => {
     core.setOutput("polled-iterations", "0");
     return;
   }
-  const mode = determineMode(
+  const mode = determineMode({
     action,
-    isHeadShaAction(action),
-    pr.auto_merge !== null
-  );
+    isHeadShaEvent: isHeadShaAction(action),
+    isAutoMergeAlreadyEnabled: pr.auto_merge !== null
+  });
   if (mode === "skip") {
     core.warning(`Skipping unsupported pull_request action: "${action}"`);
     return;

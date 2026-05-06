@@ -30,11 +30,14 @@ const isHeadShaAction = (a: string): a is HeadShaAction =>
 //   skip    — do nothing for unsupported activity types.
 type ActionMode = 'polling' | 'pending' | 'skip'
 
-const determineMode = (
-  action: string,
-  isHeadShaEvent: boolean,
+type DetermineModeInput = {
+  action: string
+  isHeadShaEvent: boolean
   isAutoMergeAlreadyEnabled: boolean
-): ActionMode => {
+}
+
+const determineMode = (input: DetermineModeInput): ActionMode => {
+  const { action, isHeadShaEvent, isAutoMergeAlreadyEnabled } = input
   if (action === 'auto_merge_enabled') return 'polling'
   if (isHeadShaEvent) {
     return isAutoMergeAlreadyEnabled ? 'polling' : 'pending'
@@ -136,11 +139,11 @@ const run = async (): Promise<void> => {
   // the PR (e.g. a Renovate-style auto-merge-on-creation PR).
   // Pending mode: a new SHA landed but Auto Merge is not yet enabled. We
   // just mark the required check pending so the merge stays blocked.
-  const mode: ActionMode = determineMode(
+  const mode: ActionMode = determineMode({
     action,
-    isHeadShaAction(action),
-    pr.auto_merge !== null
-  )
+    isHeadShaEvent: isHeadShaAction(action),
+    isAutoMergeAlreadyEnabled: pr.auto_merge !== null
+  })
 
   if (mode === 'skip') {
     core.warning(`Skipping unsupported pull_request action: "${action}"`)
