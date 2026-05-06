@@ -35,21 +35,22 @@ export type WriteCheckRunInput = {
 
 // State → check_run (status, conclusion) mapping.
 //
-// pending → conclusion: action_required (terminal). Conveys "the
-// maintainer needs to click Enable Auto Merge" via a dedicated UI state
-// rather than a generic queued/in_progress dot. Branch protection treats
-// action_required as not-passing, so merge stays blocked.
+// pending → status: queued (non-terminal, no conclusion). Renders as a
+// neutral yellow dot in the PR Checks UI. action_required was tried but
+// rejected: it renders as a red exclamation, indistinguishable from a
+// failure to a maintainer scanning the PR. queued matches the visual
+// affordance of the v1 commit-status pending while still blocking merge
+// (any non-completed check_run is not-passing for required check
+// evaluation).
 //
-// success / failure → conclusion of the same name (terminal).
+// success / failure → status: completed with the same-named conclusion.
 const stateToCheckRunFields = (
   state: State
 ): {
-  status: 'completed'
-  conclusion: 'success' | 'failure' | 'action_required'
+  status: 'queued' | 'completed'
+  conclusion?: 'success' | 'failure'
 } => {
-  if (state === 'pending') {
-    return { status: 'completed', conclusion: 'action_required' }
-  }
+  if (state === 'pending') return { status: 'queued' }
   return { status: 'completed', conclusion: state }
 }
 

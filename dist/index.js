@@ -24088,9 +24088,7 @@ var buildTargetUrl = (input) => `${input.serverUrl}/${input.repository}/actions/
 var CHECK_RUN_EXTERNAL_ID = "automerge-gate";
 var TITLE = "automerge-gate";
 var stateToCheckRunFields = (state) => {
-  if (state === "pending") {
-    return { status: "completed", conclusion: "action_required" };
-  }
+  if (state === "pending") return { status: "queued" };
   return { status: "completed", conclusion: state };
 };
 var writeCheckRun = async (octokit, input, retryOptions = {

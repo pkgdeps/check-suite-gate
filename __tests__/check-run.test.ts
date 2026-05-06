@@ -57,7 +57,7 @@ describe('buildTargetUrl', () => {
 })
 
 describe('writeCheckRun', () => {
-  it('creates a completed check_run with conclusion=action_required for pending state', async () => {
+  it('creates a queued check_run (no conclusion) for pending state', async () => {
     const { octokit, mocks } = buildOctokit([])
     await writeCheckRun(octokit, {
       owner: 'o',
@@ -82,8 +82,8 @@ describe('writeCheckRun', () => {
       repo: 'r',
       name: 'automerge-gate/all-passed',
       head_sha: 'abc',
-      status: 'completed',
-      conclusion: 'action_required',
+      status: 'queued',
+      conclusion: undefined,
       external_id: CHECK_RUN_EXTERNAL_ID,
       output: {
         title: 'automerge-gate',
