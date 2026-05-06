@@ -63,6 +63,37 @@ describe('pollUntilComplete', () => {
     expect(capturedSize).toBe(1)
   })
 
+  it('calls onIteration once per iteration with the right shape', async () => {
+    const fetchRuns = vi
+      .fn()
+      .mockResolvedValueOnce([
+        make({ status: 'in_progress', conclusion: null }),
+        make({ id: 2, conclusion: 'success' })
+      ])
+      .mockResolvedValueOnce([
+        make({ conclusion: 'success' }),
+        make({ id: 2, conclusion: 'success' })
+      ])
+    const snapshots: Array<{
+      iteration: number
+      state: string
+      total: number
+      completed: number
+    }> = []
+    const result = await pollUntilComplete(fetchRuns, {
+      ...opts,
+      onIteration: (s) => {
+        snapshots.push(s)
+      }
+    })
+    expect(result.state).toBe('success')
+    expect(result.iterations).toBe(2)
+    expect(snapshots).toEqual([
+      { iteration: 1, state: 'pending', total: 2, completed: 1 },
+      { iteration: 2, state: 'success', total: 2, completed: 2 }
+    ])
+  })
+
   it('tolerates fetchRuns errors and continues polling', async () => {
     const fetchRuns = vi
       .fn()
