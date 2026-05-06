@@ -137,6 +137,49 @@ On any PR you want to ship:
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
 
+### Examples
+
+**Exclude specific GitHub Apps from aggregation:**
+
+```yaml
+      - uses: pkgdeps/automerge-gate@v1.0.0
+        with:
+          ignore-apps: |
+            dependabot
+            renovate
+```
+
+**Exclude check_runs by glob (matches across path separators like `ci / lint`):**
+
+```yaml
+      - uses: pkgdeps/automerge-gate@v1.0.0
+        with:
+          ignore-checks: |
+            optional-*
+            docs-only
+            ci / lint
+```
+
+`ignore-apps` / `ignore-checks` accept either comma-separated values (`a,b,c`) or one entry per line via the YAML `|` block scalar.
+
+**Tune polling interval for fast CI:**
+
+```yaml
+      - uses: pkgdeps/automerge-gate@v1.0.0
+        with:
+          poll-interval-seconds: '10'
+```
+
+**Allow fork PRs through (delegating gating to other required checks):**
+
+```yaml
+      - uses: pkgdeps/automerge-gate@v1.0.0
+        with:
+          fork-policy: success
+```
+
+Pair this with another required check (e.g. ci.yml registered separately in the ruleset) so fork PRs still get gated by something.
+
 ## Outputs
 
 | name | description |
