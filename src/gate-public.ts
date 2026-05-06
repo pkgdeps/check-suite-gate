@@ -28,22 +28,28 @@ export const runPublic = async (
   )
 
   const fetchRuns = async () => {
-    const all = await fetchAllCheckRuns(
-      octokit,
-      context.owner,
-      context.repo,
-      sha
-    )
-    lastTotal = all.length
-    const filtered = applyFilters(all, inputs.ignoreApps, inputs.ignoreChecks)
-    const afterSelf = await excludeOwnWorkflowRuns(
-      filtered,
-      currentWorkflowPath,
-      lookupWorkflowPath
-    )
-    lastEvaluated = afterSelf.length
-    lastCompleted = afterSelf.filter((r) => r.status === 'completed').length
-    return afterSelf
+    try {
+      const all = await fetchAllCheckRuns(
+        octokit,
+        context.owner,
+        context.repo,
+        sha
+      )
+      lastTotal = all.length
+      const filtered = applyFilters(all, inputs.ignoreApps, inputs.ignoreChecks)
+      const afterSelf = await excludeOwnWorkflowRuns(
+        filtered,
+        currentWorkflowPath,
+        lookupWorkflowPath
+      )
+      lastEvaluated = afterSelf.length
+      lastCompleted = afterSelf.filter((r) => r.status === 'completed').length
+      return afterSelf
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      core.warning(`API fetch failed during polling (will retry): ${message}`)
+      throw err
+    }
   }
 
   core.startGroup('Polling')
