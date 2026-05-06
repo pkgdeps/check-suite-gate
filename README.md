@@ -77,40 +77,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Same-repo PR. Token has statuses:write, so the action writes the aggregated commit status directly.
   main-gate:
-    # Same-repo PR: the token has `statuses: write`, so the action writes
-    # the aggregated commit status (`automerge-gate/all-passed`) directly.
     if: github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
     runs-on: ubuntu-latest
-    # `timeout-minutes` is effectively the action's timeout. The action has
-    # no internal timeout input — the polling loop runs until all checks
-    # complete or the runner is killed by this value.
+    # timeout-minutes is the action's only timeout. Bound it to your CI's worst case.
     timeout-minutes: 10
     permissions:
-      statuses: write     # write the aggregated commit status
-      checks: read        # listSuitesForRef / listForSuite
+      statuses: write
+      checks: read
       pull-requests: read
-      actions: read       # resolve own workflow path for self-exclusion
+      actions: read
     steps:
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
           mode: main-gate
-          context: 'automerge-gate/all-passed'   # must match the required check in your ruleset
+          context: 'automerge-gate/all-passed'
 
+  # Fork PR. Token is read-only, so the gate is the job's own check_run conclusion (named after the job).
   fork-gate:
-    # Fork PR: GitHub forces GITHUB_TOKEN read-only, so a status write is
-    # impossible. Instead, set `name:` to the required-check context — the
-    # job's check_run takes that name and its conclusion is what the required
-    # check evaluates. The action runs in fork-gate mode and never attempts
-    # a status write — `statuses: write` is intentionally NOT requested here.
     if: github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
     name: automerge-gate/all-passed
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      checks: read        # listSuitesForRef / listForSuite
+      checks: read
       pull-requests: read
-      actions: read       # resolve own workflow path for self-exclusion
+      actions: read
     steps:
       - uses: pkgdeps/automerge-gate@v2.0.0
         with:
