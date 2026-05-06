@@ -89,12 +89,12 @@ describe('runPrivate', () => {
 
     await runPrivate(deps, buildInputs())
 
-    // Two POSTs: queued pre-write before polling, then final verdict.
-    expect(postBodies).toHaveLength(2)
-    expect(postBodies[0].status).toBe('queued')
-    expect(postBodies[0].conclusion).toBeUndefined()
-    expect(postBodies[1].status).toBe('completed')
-    expect(postBodies[1].conclusion).toBe('success')
+    // Single POST: the final verdict. v3 removed the queued pre-write
+    // (the v2 race it guarded against is structurally gone in the
+    // single-job pattern), so polling now does one POST per run.
+    expect(postBodies).toHaveLength(1)
+    expect(postBodies[0].status).toBe('completed')
+    expect(postBodies[0].conclusion).toBe('success')
   })
 
   it('synchronize with before SHA + auto-merge on + matching check_run on before → PATCH cancelled + fresh POST for new SHA', async () => {
@@ -164,13 +164,12 @@ describe('runPrivate', () => {
     expect(patchCalls[0].id).toBe(4242)
     expect(patchCalls[0].body.conclusion).toBe('cancelled')
 
-    // Fresh POSTs on the new SHA: queued pre-write + final success.
-    expect(postBodies).toHaveLength(2)
+    // Single fresh POST on the new SHA with the final verdict (no
+    // queued pre-write in v3).
+    expect(postBodies).toHaveLength(1)
     expect(postBodies[0].head_sha).toBe('sha-head')
-    expect(postBodies[0].status).toBe('queued')
-    expect(postBodies[1].head_sha).toBe('sha-head')
-    expect(postBodies[1].status).toBe('completed')
-    expect(postBodies[1].conclusion).toBe('success')
+    expect(postBodies[0].status).toBe('completed')
+    expect(postBodies[0].conclusion).toBe('success')
   })
 
   it('pull_request_review.submitted approved by write-permission user → POST to check-runs', async () => {
@@ -220,11 +219,11 @@ describe('runPrivate', () => {
     await runPrivate(deps, buildInputs())
 
     // Approve from a write-permission user is merge intent → polling fires.
-    // Two POSTs: queued pre-write + final success on the empty check list.
-    expect(postBodies).toHaveLength(2)
-    expect(postBodies[0].status).toBe('queued')
-    expect(postBodies[1].status).toBe('completed')
-    expect(postBodies[1].conclusion).toBe('success')
+    // Single POST: final success on the empty check list (no queued
+    // pre-write in v3).
+    expect(postBodies).toHaveLength(1)
+    expect(postBodies[0].status).toBe('completed')
+    expect(postBodies[0].conclusion).toBe('success')
   })
 
   it('drive-by Approve (read permission) → no POST', async () => {

@@ -19,44 +19,6 @@ import { hasActiveApproval } from './review-status.js'
 
 const ZERO_SHA = '0000000000000000000000000000000000000000'
 
-// Output shown when the gate's aggregated check_run is in a non-terminal
-// (queued / pending) state. Used in two places in the private-mode
-// polling path:
-//
-//   1. The queued pre-write before polling starts. Polling can take
-//      minutes, and without this write the required-check context is
-//      unreported on the head SHA — GitHub renders "Expected — Waiting
-//      for status to be reported" with no indication the gate is
-//      actively running. The pre-write inserts a `Queued —
-//      automerge-gate` row in the PR Checks list so the maintainer
-//      sees the gate is in progress; the post-polling write replaces
-//      it with the actual verdict.
-//   2. A type-defensive fallback for the post-polling write when
-//      `pollResult.state === 'pending'`. `pollUntilComplete` is typed
-//      to return `success | failure | pending`, but in the current
-//      code path it only ever exits as terminal — pending here would
-//      only occur if the contract changed.
-//
-// The title is what GitHub renders inline in the PR merge box (e.g.
-// "Queued — Waiting for Approve or Enable auto-merge"), so it must be
-// self-explanatory at a glance and reflect every signal that would
-// unblock the gate. The `reason` from determineMode is appended verbatim
-// so the maintainer can see exactly which event/state put the gate
-// here, without cross-referencing workflow logs.
-export const buildPendingOutput = (reason: string): CheckRunOutput => ({
-  title: 'Waiting for Approve or Enable auto-merge',
-  summary: [
-    'This required check is waiting for any of the following merge-intent signals:',
-    '',
-    '- A reviewer submits an **Approve** review, or',
-    '- A maintainer clicks **Enable auto-merge**',
-    '',
-    'Once either lands, the gate polls every other check on the PR and turns green or red based on the aggregated result.',
-    '',
-    `**Trigger:** ${reason}`
-  ].join('\n')
-})
-
 type PollingStats = {
   total: number
   evaluated: number
@@ -207,38 +169,6 @@ export const runPrivate = async (
 
   // mode === 'polling'
 
-  // Pre-write a queued check_run BEFORE polling starts.
-  //
-  // Polling can take minutes (it has no internal timeout — it waits
-  // for every check on the PR to reach a terminal state). Without this
-  // pre-write, the required-check context is unreported on the head
-  // SHA during the entire polling window, and GitHub renders
-  // "Expected — Waiting for status to be reported" — visually
-  // indistinguishable from a state where the gate workflow never
-  // triggered. The maintainer can't tell whether the gate is running
-  // or stuck.
-  //
-  // The pre-write inserts a `Queued — automerge-gate` row in the PR
-  // Checks list so the maintainer sees the gate is actively in
-  // progress. `status: queued` is non-terminal, so GitHub keeps merge
-  // blocked until the post-polling write below replaces it with the
-  // actual `success` / `failure` verdict.
-  //
-  // (Historically — see lessons/2026-05-06-check-run-pending-state-mapping.md
-  // §4 — the pre-write also closed a v2-era race where a sibling job's
-  // skipped check_run could land first as "latest" in the suite. That
-  // race is structurally gone in v3's single-job pattern, but the
-  // UX-during-polling reason above keeps the pre-write in place.)
-  await writeCheckRun(octokit, {
-    owner,
-    repo,
-    sha,
-    state: 'pending',
-    name: inputs.context,
-    output: buildPendingOutput(reason),
-    details_url: targetUrl
-  })
-
   let lastTotal = 0
   let lastEvaluated = 0
   let lastCompleted = 0
@@ -271,8 +201,10 @@ export const runPrivate = async (
   }
 
   // Polling has no internal timeout. The job's timeout-minutes will kill
-  // this run if checks take too long; the aggregate check_run remains as
-  // last written (= the queued check_run we pre-wrote before polling).
+  // this run if checks take too long; on timeout no aggregate check_run
+  // gets written, and the required-check context is reported by GitHub
+  // as the default `Expected — Waiting for status to be reported` until
+  // the next push or `auto_merge_enabled` event re-triggers the gate.
   core.startGroup('Polling')
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
@@ -293,26 +225,39 @@ export const runPrivate = async (
   )
   core.endGroup()
 
-  const pollingOutput =
-    pollResult.state === 'pending'
-      ? buildPendingOutput(reason)
-      : buildPollingOutput(
-          pollResult.state,
-          {
-            total: lastTotal,
-            evaluated: lastEvaluated,
-            completed: lastCompleted,
-            iterations: pollResult.iterations
-          },
-          reason
-        )
+  // Defensive guard: `pollUntilComplete` is a `while(true)` that only
+  // returns when the aggregated state is terminal (`success` / `failure`).
+  // The `pending` branch is unreachable at runtime; this narrows the type
+  // so the post-polling write below can pass `pollResult.state` to
+  // `buildPollingOutput` (which expects `'success' | 'failure'`) without
+  // a cast, and surfaces any future contract regression as an explicit
+  // failure rather than an incoherent write.
+  if (pollResult.state === 'pending') {
+    core.warning(
+      `automerge-gate: polling exited with pending state (unexpected) — iterations=${pollResult.iterations}`
+    )
+    core.setFailed(
+      'automerge-gate: polling exited with pending state (unexpected)'
+    )
+    return
+  }
+
   await writeCheckRun(octokit, {
     owner,
     repo,
     sha,
     state: pollResult.state,
     name: inputs.context,
-    output: pollingOutput,
+    output: buildPollingOutput(
+      pollResult.state,
+      {
+        total: lastTotal,
+        evaluated: lastEvaluated,
+        completed: lastCompleted,
+        iterations: pollResult.iterations
+      },
+      reason
+    ),
     details_url: targetUrl
   })
 

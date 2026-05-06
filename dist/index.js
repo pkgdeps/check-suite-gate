@@ -24313,19 +24313,6 @@ var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = 
 
 // src/gate-private.ts
 var ZERO_SHA = "0000000000000000000000000000000000000000";
-var buildPendingOutput = (reason) => ({
-  title: "Waiting for Approve or Enable auto-merge",
-  summary: [
-    "This required check is waiting for any of the following merge-intent signals:",
-    "",
-    "- A reviewer submits an **Approve** review, or",
-    "- A maintainer clicks **Enable auto-merge**",
-    "",
-    "Once either lands, the gate polls every other check on the PR and turns green or red based on the aggregated result.",
-    "",
-    `**Trigger:** ${reason}`
-  ].join("\n")
-});
 var buildPollingOutput = (state, stats, reason) => {
   const title = state === "success" ? "All checks passed" : "At least one check failed";
   const headline = state === "success" ? `All ${stats.evaluated} evaluated checks passed.` : `${stats.evaluated} evaluated checks include at least one failure.`;
@@ -24406,15 +24393,6 @@ var runPrivate = async (deps, inputs) => {
       });
     }
   }
-  await writeCheckRun(octokit, {
-    owner,
-    repo,
-    sha,
-    state: "pending",
-    name: inputs.context,
-    output: buildPendingOutput(reason),
-    details_url: targetUrl
-  });
   let lastTotal = 0;
   let lastEvaluated = 0;
   let lastCompleted = 0;
@@ -24461,23 +24439,31 @@ var runPrivate = async (deps, inputs) => {
     `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
   );
   core3.endGroup();
-  const pollingOutput = pollResult.state === "pending" ? buildPendingOutput(reason) : buildPollingOutput(
-    pollResult.state,
-    {
-      total: lastTotal,
-      evaluated: lastEvaluated,
-      completed: lastCompleted,
-      iterations: pollResult.iterations
-    },
-    reason
-  );
+  if (pollResult.state === "pending") {
+    core3.warning(
+      `automerge-gate: polling exited with pending state (unexpected) \u2014 iterations=${pollResult.iterations}`
+    );
+    core3.setFailed(
+      "automerge-gate: polling exited with pending state (unexpected)"
+    );
+    return;
+  }
   await writeCheckRun(octokit, {
     owner,
     repo,
     sha,
     state: pollResult.state,
     name: inputs.context,
-    output: pollingOutput,
+    output: buildPollingOutput(
+      pollResult.state,
+      {
+        total: lastTotal,
+        evaluated: lastEvaluated,
+        completed: lastCompleted,
+        iterations: pollResult.iterations
+      },
+      reason
+    ),
     details_url: targetUrl
   });
   core3.setOutput("state", pollResult.state);
