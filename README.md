@@ -99,6 +99,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: pkgdeps/automerge-gate@v1.0.0
+        with:
+          context: 'automerge-gate/all-passed'   # must match the required check in your ruleset
 ```
 
 `ignore-apps` / `ignore-checks` / `fork-policy` などの optional inputs は [Inputs](#inputs) を参照してください。
