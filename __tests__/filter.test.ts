@@ -23,6 +23,18 @@ describe('parseList', () => {
     expect(parseList('')).toEqual([])
     expect(parseList('   ')).toEqual([])
   })
+
+  it('splits on newlines (yaml `|` block scalar)', () => {
+    expect(parseList('a\nb\nc')).toEqual(['a', 'b', 'c'])
+  })
+
+  it('mixes commas and newlines', () => {
+    expect(parseList('a, b\nc,d ')).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('trims whitespace and blank lines', () => {
+    expect(parseList('  a \n\n  b  \n\n')).toEqual(['a', 'b'])
+  })
 })
 
 describe('applyFilters', () => {
