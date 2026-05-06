@@ -24087,7 +24087,7 @@ var pollUntilComplete = async (fetchRuns, options) => {
 var buildTargetUrl = (input) => `${input.serverUrl}/${input.repository}/actions/runs/${input.runId}/attempts/${input.runAttempt}`;
 var CHECK_RUN_EXTERNAL_ID = "automerge-gate";
 var stateToCheckRunFields = (state) => {
-  if (state === "pending") return { status: "queued" };
+  if (state === "pending") return { status: "waiting" };
   return { status: "completed", conclusion: state };
 };
 var writeCheckRun = async (octokit, input, retryOptions = {

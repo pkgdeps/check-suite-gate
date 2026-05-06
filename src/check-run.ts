@@ -38,22 +38,22 @@ export type WriteCheckRunInput = {
 
 // State → check_run (status, conclusion) mapping.
 //
-// pending → status: queued (non-terminal, no conclusion). Renders as a
-// neutral yellow dot in the PR Checks UI. action_required was tried but
-// rejected: it renders as a red exclamation, indistinguishable from a
-// failure to a maintainer scanning the PR. queued matches the visual
-// affordance of the v1 commit-status pending while still blocking merge
-// (any non-completed check_run is not-passing for required check
-// evaluation).
+// pending → status: waiting (non-terminal, no conclusion). The Checks
+// API docs say "Only GitHub Actions can set a status of waiting,
+// pending, or requested" — it's unclear whether that means GitHub's
+// internal Actions service or any caller authenticated as the
+// github-actions[bot] (i.e. any workflow). Trying the latter
+// experimentally; if the API rejects it (typically 422), fall back to
+// status: queued.
 //
 // success / failure → status: completed with the same-named conclusion.
 const stateToCheckRunFields = (
   state: State
 ): {
-  status: 'queued' | 'completed'
+  status: 'waiting' | 'queued' | 'completed'
   conclusion?: 'success' | 'failure'
 } => {
-  if (state === 'pending') return { status: 'queued' }
+  if (state === 'pending') return { status: 'waiting' }
   return { status: 'completed', conclusion: state }
 }
 

@@ -33,7 +33,7 @@ export type CheckRunCreateParams = {
   repo: string
   name: string
   head_sha: string
-  status?: 'queued' | 'in_progress' | 'completed'
+  status?: 'queued' | 'in_progress' | 'completed' | 'waiting'
   conclusion?:
     | 'success'
     | 'failure'
@@ -52,7 +52,7 @@ export type CheckRunUpdateParams = {
   owner: string
   repo: string
   check_run_id: number
-  status?: 'queued' | 'in_progress' | 'completed'
+  status?: 'queued' | 'in_progress' | 'completed' | 'waiting'
   conclusion?:
     | 'success'
     | 'failure'
