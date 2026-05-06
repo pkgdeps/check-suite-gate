@@ -212,9 +212,38 @@ v3 では `src/gate-private.ts` の polling path から **polling 開始前の `
 
 post-polling write の前に「`pollResult.state === 'pending'` ならば `setFailed` して return する」 guard は残してある。 `pollUntilComplete` は `while(true)` で terminal state でしか return しないので runtime 上 unreachable だが、 `buildPollingOutput` の引数を `'success' | 'failure'` に narrow するための型 guard と、 将来 contract が変わったときに不整合な write を回避する保険を兼ねる。
 
+## 6. v4 で commit status に revert した (suite-mismatch race の再発)
+
+v3 (`v3.0.0`) は private mode の verdict 書き込みを `octokit.rest.checks.create` で行う設計だった。 §3 で論じた「同名 check_run を新規 create することで最新 suite に必ず入れる」想定が、 実機運用で崩れた。
+
+### 観測した事象 (automerge-gate-example PR #28)
+
+`auto_merge_enabled` 起点の workflow run で `octokit.rest.checks.create` を発行したところ、 GitHub 側が **新 check_run を非決定的な (= 当該 workflow run のものではない) check_suite に assign** した。 多くは PR 初回 run の GitHub Actions suite。 結果として **最新 suite には verdict 用 check_run が存在しない** 状態になり、 `mergeStateStatus: BLOCKED` + `statusCheckRollup.state: SUCCESS` という v2 と同じ stuck pattern が再発。
+
+§3 で「`writeCheckRun` は毎回 create する」と決めた前提は、 「create された check_run は呼び出した workflow run の suite に入る」 という暗黙の仮定に依存していた。 GitHub 内部の suite assignment はそうなっていない。 docs では明確化されておらず、 実機検証で初めて分かった (= GitHub Actions サービス側の挙動で、 第三者 action からは制御不可)。
+
+### v4 の修正
+
+private mode の verdict signal を **commit status** に戻した:
+
+- `octokit.rest.repos.createCommitStatus` で POST する。 keyed by `(SHA, context)`、 suite 概念なし。
+- §5 の pre-write 撤去はそのまま v4 にも継承 (commit status は append-only per `(SHA, context)` ではあるが、 GitHub の required-check 評価は **同 `(SHA, context)` に対する最新 status だけを見る** ので、 verdict POST 1 回だけで `success` / `failure` が即時に required check に反映される)。
+- §3 の `markCheckRunStale` は不要になった。 commit status は SHA ごとに独立しており、 古い SHA の status を「キャンセル」する概念がそもそも無い。
+- §1〜§4 の check_run 周りの設計は v2/v3 履歴として残す。 v4 では code path から消えている。
+
+### v1 が正しかった
+
+v1 の commit status 設計は、 §3 / §6 で見つけた suite-mismatch race を **構造的に踏まない** 設計だった。 v2 で「Checks API の方が UI が良い (PATCH で 1 行に収まる)」という UX 観点で乗り換えたが、 race の root cause (= GitHub 内部の suite assignment が API caller には不可視) を v1 設計は意図せず回避していた。 v4 はこの構造的優位を取り戻すリバート。
+
+### 何を見落としたか
+
+- §3 で「create すれば最新 suite に入る」 と仮定したが、 GitHub の suite assignment ロジックは API caller の制御外。 docs にも明記されておらず、 実機で別 PR (automerge-gate-example #28) を運用するまで再発に気付かなかった。
+- v2 → v3 の移行時に v1 の commit status 設計の構造的優位を棚卸ししなかった。 「commit status は append-only で UI が崩れる」 という UX 上の不満ばかり議論し、 race 耐性の側面を見ていなかった。
+- 教訓: GitHub Actions / Checks API のような分散システムでは、 「同じ workflow run から create した resource が同じ suite に入る」 という仮定は API レベルで保証されていない。 race condition を構造的に消したいときは、 そもそも race の対象になり得ない API (= 単純な key-value pair) を選ぶ方が安全。
+
 ## 関連
 
 - [docs/lessons/2026-05-05-check-suite-recursion-finding.md](./2026-05-05-check-suite-recursion-finding.md) — v1 設計の前提崩れ
-- [docs/architecture.md](../architecture.md) — v3 設計の rationale
+- [docs/architecture.md](../architecture.md) — v4 設計の rationale
 - PR [#15](https://github.com/pkgdeps/automerge-gate/pull/15) — v2 移行 (commit status → check_run)
-- [src/check-run.ts](../../src/check-run.ts) — `stateToCheckRunFields` 実装
+- [src/commit-status.ts](../../src/commit-status.ts) — v4 の commit status 実装 (v2/v3 の `src/check-run.ts` を `git mv` でリネームして書き直した。 `git log --follow src/commit-status.ts` で v2/v3 の `stateToCheckRunFields` 実装履歴を辿れる)

@@ -14,6 +14,26 @@ const stubCoreSummary = (): void => {
   vi.spyOn(core.summary, 'write').mockResolvedValue(core.summary)
 }
 
+const captureStatusPosts = (
+  bodies: Array<Record<string, unknown>>,
+  shas: string[]
+): void => {
+  server.use(
+    http.post(
+      `${BASE}/repos/:owner/:repo/statuses/:sha`,
+      async ({ request, params }) => {
+        const body = (await request.json()) as Record<string, unknown>
+        bodies.push(body)
+        shas.push(params.sha as string)
+        return HttpResponse.json(
+          { id: bodies.length, sha: params.sha, ...body },
+          { status: 201 }
+        )
+      }
+    )
+  )
+}
+
 describe('runPrivate', () => {
   beforeEach(() => {
     stubCoreSummary()
@@ -23,28 +43,10 @@ describe('runPrivate', () => {
     vi.restoreAllMocks()
   })
 
-  it('synchronize without merge intent → no POST/PATCH to check-runs', async () => {
+  it('synchronize without merge intent → no POST to /statuses', async () => {
     const postBodies: Array<Record<string, unknown>> = []
-    const patchIds: number[] = []
-    server.use(
-      http.post(
-        `${BASE}/repos/:owner/:repo/check-runs`,
-        async ({ request }) => {
-          const body = (await request.json()) as Record<string, unknown>
-          postBodies.push(body)
-          return HttpResponse.json({
-            ...body,
-            id: 1,
-            check_suite: { id: 1 },
-            html_url: 'https://example.com'
-          })
-        }
-      ),
-      http.patch(`${BASE}/repos/:owner/:repo/check-runs/:id`, ({ params }) => {
-        patchIds.push(Number(params.id))
-        return HttpResponse.json({ id: Number(params.id) })
-      })
-    )
+    const postShas: string[] = []
+    captureStatusPosts(postBodies, postShas)
 
     const deps = buildDeps({
       eventName: 'pull_request',
@@ -56,26 +58,12 @@ describe('runPrivate', () => {
     await runPrivate(deps, buildInputs())
 
     expect(postBodies).toHaveLength(0)
-    expect(patchIds).toHaveLength(0)
   })
 
-  it('auto_merge_enabled with empty check list → POST to check-runs with conclusion: success', async () => {
+  it('auto_merge_enabled with empty check list → POST to /statuses with state: success', async () => {
     const postBodies: Array<Record<string, unknown>> = []
-    server.use(
-      http.post(
-        `${BASE}/repos/:owner/:repo/check-runs`,
-        async ({ request }) => {
-          const body = (await request.json()) as Record<string, unknown>
-          postBodies.push(body)
-          return HttpResponse.json({
-            ...body,
-            id: postBodies.length,
-            check_suite: { id: 1 },
-            html_url: 'https://example.com'
-          })
-        }
-      )
-    )
+    const postShas: string[] = []
+    captureStatusPosts(postBodies, postShas)
 
     const deps = buildDeps({
       eventName: 'pull_request',
@@ -89,62 +77,23 @@ describe('runPrivate', () => {
 
     await runPrivate(deps, buildInputs())
 
-    // Single POST: the final verdict. v3 removed the queued pre-write
-    // (the v2 race it guarded against is structurally gone in the
-    // single-job pattern), so polling now does one POST per run.
+    // Single POST: the final verdict. v4 keeps v3's "no pre-write" rule
+    // and additionally swaps the API call from check_run create to
+    // commit status, so polling does exactly one POST per run.
     expect(postBodies).toHaveLength(1)
-    expect(postBodies[0].status).toBe('completed')
-    expect(postBodies[0].conclusion).toBe('success')
+    expect(postShas[0]).toBe('sha-head')
+    expect(postBodies[0]).toMatchObject({
+      state: 'success',
+      context: 'automerge-gate/all-passed'
+    })
+    expect(typeof postBodies[0].description).toBe('string')
+    expect(typeof postBodies[0].target_url).toBe('string')
   })
 
-  it('synchronize with before SHA + auto-merge on + matching check_run on before → PATCH cancelled + fresh POST for new SHA', async () => {
+  it('synchronize with auto-merge on → fresh POST to /statuses for new SHA (no PATCH for previous SHA)', async () => {
     const postBodies: Array<Record<string, unknown>> = []
-    const patchCalls: Array<{ id: number; body: Record<string, unknown> }> = []
-    server.use(
-      // The previous SHA already has one of our aggregated check_runs.
-      http.get(
-        `${BASE}/repos/:owner/:repo/commits/:sha/check-runs`,
-        ({ params }) => {
-          if (params.sha === 'sha-before') {
-            return HttpResponse.json({
-              total_count: 1,
-              check_runs: [
-                {
-                  id: 4242,
-                  name: 'automerge-gate/all-passed',
-                  status: 'queued',
-                  conclusion: null,
-                  external_id: 'automerge-gate',
-                  app: { slug: 'github-actions' }
-                }
-              ]
-            })
-          }
-          return HttpResponse.json({ total_count: 0, check_runs: [] })
-        }
-      ),
-      http.post(
-        `${BASE}/repos/:owner/:repo/check-runs`,
-        async ({ request }) => {
-          const body = (await request.json()) as Record<string, unknown>
-          postBodies.push(body)
-          return HttpResponse.json({
-            ...body,
-            id: 100 + postBodies.length,
-            check_suite: { id: 9 },
-            html_url: 'https://example.com'
-          })
-        }
-      ),
-      http.patch(
-        `${BASE}/repos/:owner/:repo/check-runs/:id`,
-        async ({ params, request }) => {
-          const body = (await request.json()) as Record<string, unknown>
-          patchCalls.push({ id: Number(params.id), body })
-          return HttpResponse.json({ id: Number(params.id) })
-        }
-      )
-    )
+    const postShas: string[] = []
+    captureStatusPosts(postBodies, postShas)
 
     const deps = buildDeps({
       eventName: 'pull_request',
@@ -159,21 +108,20 @@ describe('runPrivate', () => {
 
     await runPrivate(deps, buildInputs())
 
-    // PATCH on old SHA's check_run with conclusion=cancelled.
-    expect(patchCalls).toHaveLength(1)
-    expect(patchCalls[0].id).toBe(4242)
-    expect(patchCalls[0].body.conclusion).toBe('cancelled')
-
-    // Single fresh POST on the new SHA with the final verdict (no
-    // queued pre-write in v3).
+    // v4 commit status is keyed by `(SHA, context)` and append-only;
+    // the previous SHA's status doesn't need to be marked stale (no
+    // markCheckRunStale equivalent). One POST: the new SHA's verdict.
     expect(postBodies).toHaveLength(1)
-    expect(postBodies[0].head_sha).toBe('sha-head')
-    expect(postBodies[0].status).toBe('completed')
-    expect(postBodies[0].conclusion).toBe('success')
+    expect(postShas).toEqual(['sha-head'])
+    expect(postBodies[0]).toMatchObject({
+      state: 'success',
+      context: 'automerge-gate/all-passed'
+    })
   })
 
-  it('pull_request_review.submitted approved by write-permission user → POST to check-runs', async () => {
+  it('pull_request_review.submitted approved by write-permission user → POST to /statuses', async () => {
     const postBodies: Array<Record<string, unknown>> = []
+    const postShas: string[] = []
     server.use(
       http.get(`${BASE}/repos/:owner/:repo/pulls/:n/reviews`, () =>
         HttpResponse.json([
@@ -193,21 +141,9 @@ describe('runPrivate', () => {
             role_name: 'write',
             user: { login: params.u as string }
           })
-      ),
-      http.post(
-        `${BASE}/repos/:owner/:repo/check-runs`,
-        async ({ request }) => {
-          const body = (await request.json()) as Record<string, unknown>
-          postBodies.push(body)
-          return HttpResponse.json({
-            ...body,
-            id: postBodies.length,
-            check_suite: { id: 1 },
-            html_url: 'https://example.com'
-          })
-        }
       )
     )
+    captureStatusPosts(postBodies, postShas)
 
     const deps = buildDeps({
       eventName: 'pull_request_review',
@@ -219,15 +155,17 @@ describe('runPrivate', () => {
     await runPrivate(deps, buildInputs())
 
     // Approve from a write-permission user is merge intent → polling fires.
-    // Single POST: final success on the empty check list (no queued
-    // pre-write in v3).
+    // Single POST: final success on the empty check list.
     expect(postBodies).toHaveLength(1)
-    expect(postBodies[0].status).toBe('completed')
-    expect(postBodies[0].conclusion).toBe('success')
+    expect(postBodies[0]).toMatchObject({
+      state: 'success',
+      context: 'automerge-gate/all-passed'
+    })
   })
 
   it('drive-by Approve (read permission) → no POST', async () => {
     const postBodies: Array<Record<string, unknown>> = []
+    const postShas: string[] = []
     server.use(
       http.get(`${BASE}/repos/:owner/:repo/pulls/:n/reviews`, () =>
         HttpResponse.json([
@@ -248,21 +186,9 @@ describe('runPrivate', () => {
             role_name: 'read',
             user: { login: params.u as string }
           })
-      ),
-      http.post(
-        `${BASE}/repos/:owner/:repo/check-runs`,
-        async ({ request }) => {
-          const body = (await request.json()) as Record<string, unknown>
-          postBodies.push(body)
-          return HttpResponse.json({
-            ...body,
-            id: 1,
-            check_suite: { id: 1 },
-            html_url: 'https://example.com'
-          })
-        }
       )
     )
+    captureStatusPosts(postBodies, postShas)
 
     const deps = buildDeps({
       eventName: 'pull_request_review',

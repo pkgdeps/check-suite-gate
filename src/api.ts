@@ -14,67 +14,6 @@ type CheckRunData = {
   details_url: string
 }
 
-export type CheckRunListItem = {
-  id: number
-  name: string
-  status: string
-  conclusion: string | null
-  external_id: string | null
-  app: { slug: string } | null
-}
-
-export type CheckRunOutput = {
-  title: string
-  summary: string
-}
-
-export type CheckRunCreateParams = {
-  owner: string
-  repo: string
-  name: string
-  head_sha: string
-  status?: 'queued' | 'in_progress' | 'completed'
-  conclusion?:
-    | 'success'
-    | 'failure'
-    | 'neutral'
-    | 'cancelled'
-    | 'skipped'
-    | 'timed_out'
-    | 'action_required'
-    | 'stale'
-  external_id?: string
-  details_url?: string
-  output?: CheckRunOutput
-}
-
-export type CheckRunUpdateParams = {
-  owner: string
-  repo: string
-  check_run_id: number
-  status?: 'queued' | 'in_progress' | 'completed'
-  conclusion?:
-    | 'success'
-    | 'failure'
-    | 'neutral'
-    | 'cancelled'
-    | 'skipped'
-    | 'timed_out'
-    | 'action_required'
-    | 'stale'
-  details_url?: string
-  output?: CheckRunOutput
-}
-
-export type CheckRunListForRefParams = {
-  owner: string
-  repo: string
-  ref: string
-  check_name?: string
-  filter?: 'latest' | 'all'
-  per_page?: number
-}
-
 export type ReviewListItem = {
   state: string
   submitted_at: string | null
@@ -84,6 +23,16 @@ export type ReviewListItem = {
   // NONE / FIRST_TIME_CONTRIBUTOR / MANNEQUIN) so a non-authorized
   // Approve doesn't satisfy the merge-intent gate.
   author_association: string
+}
+
+export type CreateCommitStatusParams = {
+  owner: string
+  repo: string
+  sha: string
+  state: 'error' | 'failure' | 'pending' | 'success'
+  context: string
+  description?: string
+  target_url?: string
 }
 
 export type OctokitLike = {
@@ -101,11 +50,6 @@ export type OctokitLike = {
         check_suite_id: number
         per_page?: number
       }) => Promise<{ data: { check_runs: CheckRunData[] } }>
-      listForRef: (
-        params: CheckRunListForRefParams
-      ) => Promise<{ data: { check_runs: CheckRunListItem[] } }>
-      create: (params: CheckRunCreateParams) => Promise<unknown>
-      update: (params: CheckRunUpdateParams) => Promise<unknown>
     }
     pulls: {
       listReviews: (params: {
@@ -116,6 +60,7 @@ export type OctokitLike = {
       }) => Promise<{ data: ReviewListItem[] }>
     }
     repos: {
+      createCommitStatus: (params: CreateCommitStatusParams) => Promise<unknown>
       getCollaboratorPermissionLevel: (params: {
         owner: string
         repo: string

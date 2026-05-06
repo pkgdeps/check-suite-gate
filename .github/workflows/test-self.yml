@@ -7,7 +7,8 @@ on:
     types: [submitted]
 
 permissions:
-  checks: write
+  statuses: write
+  checks: read
   pull-requests: read
   actions: read
 

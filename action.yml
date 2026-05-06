@@ -1,8 +1,9 @@
 name: automerge-gate
 description: |
-  Polls check_run results for a PR and reports the aggregate as either an
-  action-written check_run (gate-mode: private) or the gate job's own
-  check_run conclusion (gate-mode: public). Single-job pattern; no race.
+  Polls check_run results for a PR and reports the aggregate as either a
+  commit status (gate-mode: private, via the legacy Commit Status API) or
+  the gate job's own check_run conclusion (gate-mode: public, via the
+  job's exit code). Single-job pattern; no race.
 author: azu
 
 branding:
@@ -11,10 +12,10 @@ branding:
 
 inputs:
   gate-mode:
-    description: 'Gate variant. "private" = cost-optimized for repos with no external fork PRs (action writes the aggregated check_run via the Checks API). "public" = simpler model for fork-accepting repos (the gate signal is the JOB exit code; the job name must match the required-check context).'
+    description: 'Gate variant. "private" = cost-optimized for repos with no external fork PRs (action writes the aggregated commit status via the legacy Commit Status API). "public" = simpler model for fork-accepting repos (the gate signal is the JOB exit code; the job name must match the required-check context).'
     required: true
   context:
-    description: 'Aggregated check_run name (gate-mode: private only). Must match the required check in your ruleset. Ignored when gate-mode: public — the job name is the signal.'
+    description: 'Aggregated commit status context (gate-mode: private only). Must match the required check in your ruleset. Ignored when gate-mode: public — the job name is the signal.'
     required: false
     default: 'automerge-gate/all-passed'
   poll-interval-seconds:
@@ -30,7 +31,7 @@ inputs:
     required: false
     default: ''
   token:
-    description: 'GitHub token used to read checks and (when permitted) write the aggregated check_run'
+    description: 'GitHub token used to read checks and (when permitted) write the aggregated commit status'
     required: false
     default: ${{ github.token }}
 

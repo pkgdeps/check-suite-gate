@@ -18,20 +18,20 @@ export const defaultHandlers = [
   http.get(`${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`, () =>
     HttpResponse.json({ total_count: 0, check_runs: [] })
   ),
-  http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-runs`, () =>
-    HttpResponse.json({ total_count: 0, check_runs: [] })
-  ),
-  http.post(`${BASE}/repos/:owner/:repo/check-runs`, async ({ request }) => {
-    const body = (await request.json()) as Record<string, unknown>
-    return HttpResponse.json({
-      ...body,
-      id: 999,
-      check_suite: { id: 1 },
-      html_url: 'https://example.com'
-    })
-  }),
-  http.patch(`${BASE}/repos/:owner/:repo/check-runs/:id`, ({ params }) =>
-    HttpResponse.json({ id: Number(params.id) })
+  http.post(
+    `${BASE}/repos/:owner/:repo/statuses/:sha`,
+    async ({ request, params }) => {
+      const body = (await request.json()) as Record<string, unknown>
+      return HttpResponse.json(
+        {
+          id: 1,
+          sha: params.sha,
+          url: `${BASE}/repos/${params.owner}/${params.repo}/statuses/${params.sha}`,
+          ...body
+        },
+        { status: 201 }
+      )
+    }
   ),
   http.get(`${BASE}/repos/:owner/:repo/pulls/:n/reviews`, () =>
     HttpResponse.json([])

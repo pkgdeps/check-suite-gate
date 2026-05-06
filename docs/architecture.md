@@ -6,8 +6,8 @@ This document captures the design rationale for automerge-gate — why each majo
 
 - **`pull_request.auto_merge_enabled` has no recursion guard** unlike `check_suite.completed`, so the gate reliably fires on GitHub-Actions-only repos.
 - **Polling is gated by an explicit signal** in private mode (Enable Auto Merge or a write-permission Approve), so PRs the maintainer hasn't yet decided to merge don't burn runner minutes. Compared with merge-gatekeeper, which polls on every PR push, the resource cost scales with merge intent rather than with PR throughput. In public mode, the read-only token forces the simpler "always poll" model — there's no way to write a "waiting" signal back to the required check.
-- **Single-job pattern.** The verdict reaches the required check through exactly one path per configuration: in private mode the action writes a check_run named to match the required check; in public mode the job's `name:` is the required-check context and its exit code is the conclusion. There's no self-referencing loop because the action filters out check_runs from its own workflow.
-- **Check_run instead of commit status.** Commit statuses are append-only per SHA, so the same SHA's pending → success/failure transition stacks two entries; the Checks API lets the gate PATCH a single check_run by id, keeping the PR UI to one row per SHA.
+- **Single-job pattern.** The verdict reaches the required check through exactly one path per configuration: in private mode the action writes a commit status whose `context` matches the required check; in public mode the job's `name:` is the required-check context and its exit code is the conclusion. There's no self-referencing loop because the action filters out check_runs from its own workflow.
+- **Commit status (not check_run) for the private-mode signal.** v2/v3 wrote the gate's verdict as a `check_run` via `octokit.rest.checks.create`. Empirical observation (automerge-gate-example PR #28) showed GitHub assigns API-created check_runs to a non-deterministic check_suite — sometimes a stale GitHub Actions suite from the PR's first run — which re-introduced the suite-mismatch race that v2 was supposed to have killed. Commit status has no `check_suite` concept (it's keyed by `(SHA, context)` only), so the same race is structurally impossible. v4 reverted the gate signal to commit status; v1's original choice turned out to be correct for a reason v1 didn't articulate.
 - **GitHub native auto-merge handles the merge itself** once the required check turns green. This Action does not call `pulls.merge`.
 - **No internal timeout input** — timeout is managed by the job's `timeout-minutes`. Having two timeouts to keep in sync (action input vs job-level) is a footgun, so the action delegates fully. There's exactly one knob, and it's a standard GitHub Actions feature.
 
@@ -23,7 +23,7 @@ The three approaches differ in *when* they consume runner minutes. For a PR with
 
 ### Why private mode can defer polling
 
-In private mode the action holds a write token and reports the verdict by PATCHing a `check_run` with the required-check name. Absence of that check_run is itself a blocking signal — the required check stays "Expected" until the action runs, so it's safe to skip on events without merge intent. Polling only starts once the maintainer signals intent (auto-merge or approving review), which is also when waiting actually matters.
+In private mode the action holds a write token and reports the verdict by POSTing a commit status with the required-check name as `context`. Absence of that status is itself a blocking signal — the required check stays "Expected" until the action runs, so it's safe to skip on events without merge intent. Polling only starts once the maintainer signals intent (auto-merge or approving review), which is also when waiting actually matters.
 
 ### Why public mode can't defer
 
