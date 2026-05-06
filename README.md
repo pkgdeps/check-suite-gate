@@ -30,6 +30,30 @@ sequenceDiagram
 3. The gate flips the aggregated status to `success` (all checks green) or `failure` (any check red).
 4. GitHub's native auto-merge takes care of the actual merge once everything is green.
 
+### Fork PRs
+
+GitHub issues a read-only `GITHUB_TOKEN` for fork PRs by default, so writing a commit status would fail. The action detects fork PRs (by comparing head and base repository IDs) and behaves according to the `fork-policy` input:
+
+```mermaid
+sequenceDiagram
+    participant U as Maintainer
+    participant PR as Fork PR
+    participant Gate as automerge-gate
+
+    U->>PR: open / push from fork
+    Gate->>Gate: detect fork PR<br/>(head_repo.id ≠ base_repo.id)
+
+    alt fork-policy = skip (default)
+        Note over PR: No status written.<br/>Required check stays missing.<br/>Maintainer reviews and merges manually.
+    else fork-policy = success
+        Gate->>PR: Aggregated status: success<br/>(gating delegated to other required checks)
+        Note over PR: Other required checks (e.g. ci.yml)<br/>still gate the merge.
+    end
+```
+
+- Use `skip` (default) if you handle fork PRs through manual review (the typical OSS workflow).
+- Use `success` only when you have other required checks (e.g. ci.yml) registered separately, so this action can step out of the way for fork PRs while gating still happens.
+
 ## Usage
 
 ```yaml
