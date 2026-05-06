@@ -24164,7 +24164,7 @@ var markCheckRunStale = async (octokit, input, retryOptions = {
       repo,
       check_run_id: existing.id,
       status: "completed",
-      conclusion: "stale"
+      conclusion: "cancelled"
     }),
     retryOptions
   );

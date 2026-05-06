@@ -130,13 +130,24 @@ export type MarkCheckRunStaleInput = {
   name: string
 }
 
-// Marks the aggregated check_run on a previous SHA as `conclusion: stale`
-// so the PR's Commits tab no longer shows that SHA's row as a yellow-dot
-// queued entry forever. Called on `pull_request.synchronize` with the
-// payload's `before` SHA; no-ops silently if the previous SHA has no
-// matching check_run (e.g. the action wasn't installed when that SHA
-// was HEAD, or someone force-pushed and `before` is a SHA the action
-// never wrote to).
+// Marks the aggregated check_run on a previous SHA as superseded so the
+// PR's Commits tab no longer shows that SHA's row as a yellow-dot queued
+// entry forever. Called on `pull_request.synchronize` with the payload's
+// `before` SHA; no-ops silently if the previous SHA has no matching
+// check_run (e.g. the action wasn't installed when that SHA was HEAD,
+// or someone force-pushed and `before` is a SHA the action never wrote
+// to).
+//
+// Uses `conclusion: cancelled` because `conclusion: stale` — the
+// semantically perfect fit — is reserved for GitHub's internal Actions
+// service and the API rejects third-party callers with 422 ("stale is
+// not a member of [success, failure, neutral, cancelled, timed_out,
+// action_required, skipped]"). Among allowed values, cancelled is the
+// closest match: implicitly "this run was cancelled (by being
+// superseded)", renders grey in the PR Commits tab, and — unlike
+// skipped/neutral — counts as not-passing so a force-push back to this
+// SHA wouldn't accidentally satisfy the required check on stale data.
+// See docs/lessons/2026-05-06-check-run-pending-state-mapping.md.
 export const markCheckRunStale = async (
   octokit: OctokitLike,
   input: MarkCheckRunStaleInput,
@@ -169,7 +180,7 @@ export const markCheckRunStale = async (
         repo,
         check_run_id: existing.id,
         status: 'completed',
-        conclusion: 'stale'
+        conclusion: 'cancelled'
       }) as Promise<unknown>,
     retryOptions
   )

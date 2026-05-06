@@ -1,12 +1,23 @@
-# 学び: check_run の "Enable auto-merge 待ち" を表す state の選定
+# 学び: check_run の各種 state を第三者 action でどう表現するか
 
 著者: azu
 日付: 2026-05-06
 ステータス: v2 で commit status から check_run に移行する際の設計判断記録
 
-## 結論
+## 1分まとめ
 
-automerge-gate の pending state ("maintainer が Enable auto-merge を押すのを待っている" 状態) は **`status: queued` (no conclusion)** で表現する。
+GitHub の Checks API は **GitHub Actions サービス自体だけが使える状態値** がいくつかあり、第三者 action は (たとえ `GITHUB_TOKEN` 経由でも) 使えない。 docs の "Only GitHub Actions" は **GitHub の内部 Actions サービス限定** という意味。
+
+| 第三者から使えない | 用途 |
+|---|---|
+| `status: waiting` / `pending` / `requested` | environment approval 等の内部機構用 |
+| `conclusion: stale` | re-run 時に GitHub が古い check_run を退場させるとき自動的に付ける |
+
+第三者 action が「実は使いたい」 と感じる場面でも、 上記は API レベルで 422。 実機で 1 push 試すのが結論を出す最短路。
+
+## 1. pending state ("Enable auto-merge 待ち")
+
+automerge-gate の pending state は **`status: queued` (no conclusion)** で表現する。
 
 | 候補 | 結果 |
 |---|---|
@@ -60,10 +71,37 @@ waiting is not a member of ["queued", "in_progress"].
 
 `in_progress` も同等に動作するが「実際に何かを処理中」という意味合いが強いので、polling が始まるまでは queued の方が semantically 近い。 (好みの問題なので将来変えてもよい。)
 
+## 2. 古いHEADの check_run を「もう関係ない」と表現する
+
+`pull_request.synchronize` で新しいHEADが landed したとき、 直前のSHAの aggregated check_run を「古くなった」 と分かる状態に PATCH したい。 PR の Commits タブに延々と queued (黄色ドット) が並ぶのを防ぐ。
+
+**結論**: `conclusion: cancelled` を使う。
+
+### 試行: `conclusion: stale`
+
+文字通り「古くなった (stale)」を表す conclusion で、 一見ぴったり。 しかし実機で試すと API が 422:
+
+```
+stale is not a member of ["success", "failure", "neutral", "cancelled", "timed_out", "action_required", "skipped"].
+```
+
+→ docs の [Update a check run](https://docs.github.com/en/rest/checks/runs?apiVersion=2022-11-28#update-a-check-run) には `stale` も list されているが、 これも GitHub Actions サービス内部用。 GitHub が workflow を re-run したときに古い run の check_run を自動的に stale にするのに使うもので、 第三者は設定できない。
+
+### 採用: `conclusion: cancelled`
+
+許可された 7 値 ( `success`, `failure`, `neutral`, `cancelled`, `timed_out`, `action_required`, `skipped` ) の中で、 「supersededだよ」 を表すのに最も近い。
+
+- 意味: 「この run は (新しい push に) cancel された」 と読める
+- UI: グレーの斜線アイコン
+- merge 評価: pass しない (= force-push で誤って古い HEAD に戻されても require check は fail)
+
+`skipped` / `neutral` は merge 評価で pass してしまうので、 force-push 時に古い check_run が誤って green と扱われるリスクがある。 `cancelled` は安全側。
+
 ## 何を見落としたか
 
 - docs の "Only GitHub Actions can set" を最初から (a) と読み切れず、 (b) の可能性を残した。 一般的に GitHub docs で "GitHub Actions" は **GitHub Actions サービス自体** を指すことが多く、 workflow context のことは通常 "the workflow" / "your workflow" / "the GitHub Actions runner" と書かれる。 紛らわしい場合は実機で試すのが結局速い (1 push で確認できる)。
 - `action_required` は API レベルではうまく hit しても UI rendering が intent に合わないことがある (= UX を見て初めて分かる)。 後続の同種の検討では「色味どう描画される?」を最初に確認するルートにすると早い。
+- `stale` の制約は docs に明記されていない (許可値 list には載っている) のに API では reject される。 status の `waiting` などと違って事前に予測しにくい。 **API が許可値として list する値でも GitHub 内部用に予約されているケースがある** という前提を持っておく必要があった。
 
 ## 関連
 

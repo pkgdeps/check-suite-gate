@@ -241,7 +241,7 @@ describe('writeCheckRun', () => {
 })
 
 describe('markCheckRunStale', () => {
-  it('PATCHes a matching check_run with conclusion: stale', async () => {
+  it('PATCHes a matching check_run with conclusion: cancelled', async () => {
     const existing: CheckRunListItem = {
       id: 4242,
       name: 'automerge-gate/all-passed',
@@ -271,7 +271,7 @@ describe('markCheckRunStale', () => {
       repo: 'r',
       check_run_id: 4242,
       status: 'completed',
-      conclusion: 'stale'
+      conclusion: 'cancelled'
     })
     expect(mocks.create).not.toHaveBeenCalled()
   })
