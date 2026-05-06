@@ -94,8 +94,6 @@ automerge-gate ships two workflow configurations. Pick one based on whether your
 - **Configuration A: private (cost-optimized)** — internal-only repos that do not receive external fork PRs. The action writes the aggregated check_run via the Checks API. PRs without merge intent skip polling entirely so runner minutes are saved.
 - **Configuration B: public (fork-aware)** — repos that accept fork PRs. `GITHUB_TOKEN` is read-only on fork PRs, so the gate signal is the gate job's own check_run conclusion. The job runs on every triggering event and always polls.
 
-Coming from v2? See [docs/MIGRATION.md](docs/MIGRATION.md).
-
 ### Configuration A: private (cost-optimized)
 
 Create `.github/workflows/automerge-gate.yaml`:
@@ -263,15 +261,6 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 | `completed-checks` | Number of completed check_runs after filters |
 | `polled-iterations` | Number of polling iterations performed |
 
-## Why this design
-
-- **`pull_request.auto_merge_enabled` has no recursion guard** unlike `check_suite.completed`, so the gate reliably fires on GitHub-Actions-only repos.
-- **Polling is gated by an explicit signal** in private mode (Enable Auto Merge or a write-permission Approve), so PRs the maintainer hasn't yet decided to merge don't burn runner minutes. Compared with merge-gatekeeper, which polls on every PR push, the resource cost scales with merge intent rather than with PR throughput. In public mode, the read-only token forces the simpler "always poll" model — there's no way to write a "waiting" signal back to the required check.
-- **Single-job pattern.** The verdict reaches the required check through exactly one path per configuration: in private mode the action writes a check_run named to match the required check; in public mode the job's `name:` is the required-check context and its exit code is the conclusion. There's no self-referencing loop because the action filters out check_runs from its own workflow.
-- **Check_run instead of commit status.** Commit statuses are append-only per SHA, so the same SHA's pending → success/failure transition stacks two entries; the Checks API lets the gate PATCH a single check_run by id, keeping the PR UI to one row per SHA.
-- **GitHub native auto-merge handles the merge itself** once the required check turns green. This Action does not call `pulls.merge`.
-- **No internal timeout input** — timeout is managed by the job's `timeout-minutes`. Having two timeouts to keep in sync (action input vs job-level) is a footgun, so the action delegates fully. There's exactly one knob, and it's a standard GitHub Actions feature.
-
 ## Limitations
 
 - **Merge queue (`merge_group`)** is not supported.
@@ -282,35 +271,6 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 ## Versioning
 
 Releases are published as **immutable semver tags** (`v3.0.0`, `v3.1.0`, ...). There is intentionally no moving major tag (`v3`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
-
-## Releasing (maintainers)
-
-All releases are cut from the GitHub web UI. There is no release script and no `npm publish` step.
-
-### Pre-release checklist
-
-1. `main` is green on CI.
-2. `dist/index.js` is in sync with `src/`. The pre-commit hook keeps it in sync; if in doubt run:
-   ```bash
-   npm run build
-   git diff --exit-code dist/   # should be empty
-   ```
-
-### Cutting a release
-
-1. Go to **Releases → Draft a new release**.
-2. **Choose a tag**: type the new version (e.g. `v3.0.0`) and select *Create new tag on publish*.
-3. **Target**: `main`.
-4. **Release title**: same as the tag (e.g. `v3.0.0`).
-5. Click **Generate release notes** to autopopulate from PRs / commits since the last tag.
-6. **Set as the latest release**: tick the box.
-7. **Mark as an immutable release** (Public Preview): tick if the option is shown — locks the tag and asset checksums so they cannot be silently rewritten later.
-8. **Publish to GitHub Marketplace**: tick on the **first** release only. Subsequent releases auto-update the existing Marketplace listing.
-9. Click **Publish release**.
-
-### After publishing
-
-Users pin a fixed version: `uses: pkgdeps/automerge-gate@v3.0.0`. Renovate / Dependabot will open update PRs as new versions ship.
 
 ## License
 
