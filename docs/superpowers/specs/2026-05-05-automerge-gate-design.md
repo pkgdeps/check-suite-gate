@@ -98,7 +98,7 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 11   # action 内 timeout-seconds (default 600 = 10 分) より少し長め
+    timeout-minutes: 10
     steps:
       - uses: pkgdeps/automerge-gate@v1
         with:
@@ -186,7 +186,7 @@ GitHub Docs の「About status checks」 標準解釈を踏襲。 自前で再�
 
 `timeout-seconds` は merge-gatekeeper / DataDog ensure-ci-success の慣習 (10 分前後) に揃える。 重い CI で足りない場合は input で延ばす。
 
-利用者は job レベルの `timeout-minutes` も合わせて設定する。 `timeout-seconds` よりわずかに長め (例 `600` 秒 + 1 分の buffer = `timeout-minutes: 11`) にしておくと、 action が timeout 処理を完了する余地が残る。 この組み合わせは「利用者側の YAML」 の例で示している。
+利用者は job レベルの `timeout-minutes` も合わせて設定する。 `timeout-seconds` と同じ 10 分 (= `timeout-minutes: 10`) を default として推奨し、 action が timeout 到達時に on-timeout を書く処理 (数秒) は同じ 10 分 budget の中で完了する想定。 重い CI で延ばす場合は両方を揃えて変更する。
 
 ### 自分自身の除外
 
@@ -241,7 +241,7 @@ monorepo で path filter により workflow が skip された場合、 GitHub �
 |---|---|---|---|
 | `context` | no | `automerge-gate/all-passed` | 書き込む commit status の context 名 |
 | `poll-interval-seconds` | no | `30` | check 状態を再 fetch する間隔 (秒) |
-| `timeout-seconds` | no | `600` | 全 check 完了を待つ timeout (秒)、 デフォルト 10 分。 利用者の job レベル `timeout-minutes` も合わせて設定推奨 (例 `timeout-minutes: 11`) |
+| `timeout-seconds` | no | `600` | 全 check 完了を待つ timeout (秒)、 デフォルト 10 分。 利用者の job レベル `timeout-minutes` も合わせて設定推奨 (例 `timeout-minutes: 10`) |
 | `on-timeout` | no | `failure` | timeout 到達時の挙動。 `failure` / `pending` |
 | `ignore-apps` | no | (空) | これらの App slug の check_run を集約から除外。 **カンマ区切りまたは改行区切り** (yaml の `|` block scalar 対応) |
 | `ignore-checks` | no | (空) | check_run name の glob (`*` / `?` 対応、 `/` 越え可) で除外。 **カンマ区切りまたは改行区切り** |
