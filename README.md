@@ -20,42 +20,27 @@ sequenceDiagram
     participant PR as Pull Request
 
     U->>PR: open / push
-    Note over PR: gate job not yet run<br/>(required check → merge blocked)
+    Note over PR: required check pending → merge blocked
 
     U->>PR: click "Enable Auto Merge"
-    Note over PR: gate job runs and polls<br/>until all checks complete
+    Note over PR: gate workflow polls every check on the PR
 
     alt all checks pass
-        Note over PR: gate job → success<br/>(check_run conclusion = success)
-        PR->>PR: GitHub native auto-merge → merged
+        Note over PR: required check → success
+        PR->>PR: GitHub auto-merge → merged
     else any check fails
-        Note over PR: gate job → failure<br/>(check_run conclusion = failure)<br/>auto-merge blocked
+        Note over PR: required check → failure (merge blocked)
     end
 ```
 
-1. The PR is merge-blocked from the moment it's opened — the gate job hasn't produced a `success` conclusion for the required check yet.
-2. When the maintainer clicks **Enable Auto Merge**, the gate job starts watching every other check on the PR.
-3. The action exits the job with success (all checks green) or failure (any check red). The job's `check_run` conclusion — named `automerge-gate/all-passed` to match the required-check context — is what GitHub's required-check evaluates.
-4. GitHub's native auto-merge takes care of the actual merge once the required check is green.
+1. A PR is merge-blocked from the moment it's opened.
+2. When the maintainer clicks **Enable Auto Merge**, the gate workflow polls every check on the PR.
+3. It writes the verdict (success or failure) to the required check `automerge-gate/all-passed`.
+4. GitHub's native auto-merge merges the PR as soon as the required check turns green.
 
-**If Auto Merge is already enabled when you push a new commit**: the action treats the synchronize event the same as `auto_merge_enabled` — it polls until all checks complete, then exits with the verdict. You don't need to disable→enable Auto Merge after every push.
+If Auto Merge is already enabled when you push a new commit, the gate re-evaluates the new SHA automatically — no need to disable→enable.
 
-### Same-repo vs fork PRs
-
-GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate can't run there. The recommended workflow uses a 2-job pattern with an `if:` mutex on `head.repo.id == base.repo.id`, so exactly one job runs per PR:
-
-```mermaid
-flowchart TD
-    PR[PR opened / synchronize / reopened / auto_merge_enabled] --> Q{head.repo.id == base.repo.id?}
-    Q -->|same-repo PR| Gate[main-gate job<br/>mode: main-gate<br/>writes the aggregated commit status]
-    Q -->|fork PR| ForkGate[fork-gate job<br/>name: automerge-gate/all-passed<br/>mode: fork-gate, no status write]
-    Gate --> Done[automerge-gate/all-passed satisfied<br/>by commit status]
-    ForkGate --> Done2[automerge-gate/all-passed satisfied<br/>by job's check_run conclusion]
-```
-
-- **`main-gate` job** (same-repo): writes the aggregated commit status as a courtesy, since the same-repo token has full write permission. The status appears next to other commit statuses in the PR UI.
-- **`fork-gate` job** (fork): sets `name: automerge-gate/all-passed` so GitHub names its check_run after the job. The required check is satisfied directly by the job's conclusion — no token write needed.
-- The skipped job (inactive branch of the mutex) does not block the required check.
+Same-repo and fork PRs are both handled by the same workflow via a 2-job `if:` mutex; see [Usage](#usage).
 
 Note: GitHub rulesets only support AND across required checks (no OR / conditional logic), so this action is the place where "all of these checks across workflows must pass" is expressed as a single check.
 
