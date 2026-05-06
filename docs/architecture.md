@@ -78,60 +78,61 @@ which is the price of fork PR support.
 
 ## Approaches and constraints
 
-v1 → v4 の開発で encountered した GitHub の API /
-event 機構のうち、 gate の signal にも trigger にも使い得るものを整理する。 制約をテーブルで一覧化する。
+A reference of the GitHub APIs and events evaluated across v1 → v4 — both as
+gate signals and as triggers — with the constraints that drove each adoption or
+rejection.
 
-### Trigger mechanisms (いつ gate が走るか)
+### Trigger mechanisms (what causes the gate to run)
 
-| Trigger                                                         | Description              | Status in this action   | 主な制約                                                                                      |
-| --------------------------------------------------------------- | ------------------------ | ----------------------- | --------------------------------------------------------------------------------------------- |
-| `check_suite.completed`                                         | check_suite 完了時に発火 | 不採用                  | recursion guard: GitHub Actions が作った check_suite には trigger しない (lessons 2026-05-05) |
-| `check_run.completed`                                           | check_run 完了時に発火   | 不採用                  | 同上 (recursion 制約)                                                                         |
-| `workflow_run`                                                  | 別 workflow 完了時に発火 | 不採用                  | pull_request 系より間接的、 採用利点なし                                                      |
-| `pull_request` (opened/synchronize/reopened/auto_merge_enabled) | 標準 PR event            | **採用**                | 信頼性高、 user 駆動 events 全カバー                                                          |
-| `pull_request_review` (submitted)                               | review 提出時            | **採用 (private only)** | Approve を merge 意図 signal として使う                                                       |
-| `status`                                                        | commit status 更新時     | 不採用                  | recursion 懸念                                                                                |
+| Trigger                                                         | Description                | Status in this action | Key constraints                                                                                                            |
+| --------------------------------------------------------------- | -------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `check_suite.completed`                                         | fires when a suite ends    | rejected              | GitHub Actions' recursion guard: suites created by GitHub Actions don't trigger workflows in the same repo (lessons §3–§5) |
+| `check_run.completed`                                           | fires when a run ends      | rejected              | same recursion guard                                                                                                       |
+| `workflow_run`                                                  | fires when a workflow ends | rejected              | more indirect than `pull_request` events with no offsetting benefit                                                        |
+| `pull_request` (opened/synchronize/reopened/auto_merge_enabled) | standard PR events         | **adopted**           | reliable, covers all user-driven events                                                                                    |
+| `pull_request_review` (submitted)                               | fires on review submission | **adopted (private)** | used as a merge-intent signal via Approve                                                                                  |
+| `status`                                                        | fires on commit status     | rejected              | risk of recursion if we ever write a status from the gate                                                                  |
 
-### Gate signal mechanisms (gate を何で表すか)
+### Gate signal mechanisms (how the verdict reaches the required check)
 
-| Mechanism     | API                                                                  | このaction での採用                | 主な制約 / 特徴                                                                                                                                                          |
-| ------------- | -------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| commit status | `POST /repos/{o}/{r}/statuses/{sha}`                                 | **v1 / v4 (private mode)**         | states: pending/success/error/failure のみ; markdown 不可; permission: `statuses: write`; **suite 概念なし → race 構造的に発生不可**                                     |
-| check_run     | `POST /check-runs`                                                   | v2 / v3 (private mode)             | markdown output, details_url、 PATCH-by-id 可; permission: `checks: write`; **GitHub が check_suite に自動 assign — 場合により非current suite になり stuck (issue #21)** |
-| JOB exit code | (API なし — action exit code → JOB 自動生成 check_run の conclusion) | **v2 fork-gate / v3+ public mode** | fork PR で read-only token でも動く; 要 job `name:` = required check 名; success/failure のみ; skip path 不可 (= 常に polling)                                           |
+| Mechanism     | API                                                                | Adoption                           | Key constraints / properties                                                                                                                               |
+| ------------- | ------------------------------------------------------------------ | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| commit status | `POST /repos/{o}/{r}/statuses/{sha}`                               | **v1 / v4 (private mode)**         | states: pending / success / error / failure only; no markdown; needs `statuses: write`; **no suite concept → race is structurally impossible**             |
+| check_run     | `POST /check-runs`                                                 | v2 / v3 (private mode)             | markdown output, `details_url`, PATCH-by-id; needs `checks: write`; **GitHub auto-assigns the run to a check_suite — sometimes the wrong one (issue #21)** |
+| JOB exit code | none — the action's exit code becomes the JOB check_run conclusion | **v2 fork-gate / v3+ public mode** | works with read-only fork tokens; requires job `name:` to equal the required-check context; success/failure only; no skip path (so always polls)           |
 
-### check_run の state / conclusion 制約
+### check_run state / conclusion availability
 
-なぜ第三者 action から使えない値があるかは lessons 2026-05-06 §1, §2 を参照。
+See lessons 2026-05-06 §1 and §2 for why some values are reserved.
 
-| 値                                                                                                        | 第三者 action から使用可? | Notes                                                        |
-| --------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------ |
-| `status: queued`                                                                                          | 可                        | yellow dot                                                   |
-| `status: in_progress`                                                                                     | 可                        | yellow spinner                                               |
-| `status: completed`                                                                                       | 可                        | terminal、 conclusion 必須                                   |
-| `status: waiting` / `pending` / `requested`                                                               | **不可 (422)**            | GitHub Actions サービス内部用                                |
-| `conclusion: success` / `failure` / `cancelled` / `neutral` / `skipped` / `timed_out` / `action_required` | 可                        | 7 値                                                         |
-| `conclusion: stale`                                                                                       | **不可 (422)**            | GitHub が re-run 時に古い check_run を退場させるための内部値 |
+| Value                                                                                                     | Usable from third-party actions? | Notes                                                        |
+| --------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------ |
+| `status: queued`                                                                                          | yes                              | yellow dot                                                   |
+| `status: in_progress`                                                                                     | yes                              | yellow spinner                                               |
+| `status: completed`                                                                                       | yes                              | terminal, requires `conclusion`                              |
+| `status: waiting` / `pending` / `requested`                                                               | **no (422)**                     | reserved for GitHub Actions internal use                     |
+| `conclusion: success` / `failure` / `cancelled` / `neutral` / `skipped` / `timed_out` / `action_required` | yes                              | seven values                                                 |
+| `conclusion: stale`                                                                                       | **no (422)**                     | reserved — GitHub uses it to retire old check_runs on re-run |
 
-### concurrency strategies
+### Concurrency strategies
 
-| Strategy                    | 動作                              | trade-off                                                             |
-| --------------------------- | --------------------------------- | --------------------------------------------------------------------- |
-| `cancel-in-progress: true`  | 新 run 起動時に古い run を cancel | cancelled JOB check_run が rollup state を汚す可能性 (v2 / v3 で観測) |
-| `cancel-in-progress: false` | 古い run 完走、 新 run は queue   | 直列化、 多 event 時遅い                                              |
-| 無指定                      | 全 run 並行                       | runner cost 増、 場合により conflict                                  |
+| Strategy                    | Behavior                                 | Trade-off                                                                   |
+| --------------------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
+| `cancel-in-progress: true`  | cancels older runs when a new run starts | cancelled JOB check_runs can pollute the rollup state (observed in v2 / v3) |
+| `cancel-in-progress: false` | older runs complete, new runs queue      | serialized — slow when events arrive in bursts                              |
+| unspecified                 | all runs execute in parallel             | higher runner cost, possible conflicts                                      |
 
-このaction では `${{ github.workflow }}-${{ github.ref }}` group +
-`cancel-in-progress: true`
-(merge-gatekeeper と同じ標準 pattern) を採用。 v4 の commit status
-mechanism は cancellation の影響を受けない。
+This action uses `${{ github.workflow }}-${{ github.ref }}` as the concurrency
+group with `cancel-in-progress: true` — the same pattern merge-gatekeeper uses.
+The v4 commit-status mechanism is unaffected by cancellation because the status
+is keyed by `(SHA, context)`.
 
-### 構造的制約 (誤りやすいポイント)
+### Structural pitfalls
 
-| 制約                                                                                                     | 影響                                                                                                 |
-| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| GitHub Actions が作った check_suite/check_run event は recursion guard で自身 workflow を trigger しない | check_suite/check_run event を起点にした workflow は GHA-only repo で動かない                        |
-| fork PR の `GITHUB_TOKEN` は read-only にダウングレード                                                  | fork PR で API write 不可 → JOB exit code 経由しか gate 表現できない                                 |
-| `octokit.rest.checks.create` が check_suite を自動 assign (内部 logic 不透明)                            | API write の check_run が想定外の suite に landing し、 mergeable_state=BLOCKED で stuck (issue #21) |
-| GHA 経由の PR は `pull_request.opened` を発火しない (recursion 防止)                                     | bot 作成 PR は `auto_merge_enabled` を maintainer が押すまで gate が走らない                         |
-| commit status は `(SHA, context)` keyed、 同一 context は append-only で latest が visible state         | gate signal としては race-free、 ただし markdown 等の rich UI 不可                                   |
+| Constraint                                                                                               | Impact                                                                                                |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| GitHub Actions' recursion guard suppresses `check_suite` / `check_run` events from its own runs          | workflows triggered by those events don't run in GHA-only repos                                       |
+| Fork PRs receive a read-only `GITHUB_TOKEN`                                                              | API writes are blocked — only the JOB exit code can carry the verdict                                 |
+| `octokit.rest.checks.create` auto-assigns to a `check_suite` (internal logic is not documented)          | API-created check_runs can land on an unintended suite, leaving `mergeable_state=BLOCKED` (issue #21) |
+| PRs opened by GitHub Actions don't fire `pull_request.opened` (recursion protection)                     | bot-opened PRs don't run the gate until a maintainer enables auto-merge                               |
+| Commit status is keyed by `(SHA, context)` — same-context writes are append-only with the latest visible | race-free as a gate signal, but no rich UI (markdown, etc.)                                           |
