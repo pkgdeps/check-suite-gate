@@ -24171,21 +24171,6 @@ var writeSummary = async (input) => {
     ["polling iterations", String(input.iterations)]
   ]).write();
 };
-var tryWriteCheckRun = async (octokit, input) => {
-  try {
-    await writeCheckRun(octokit, input);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const isPermissionError = /\b403\b/.test(message) || /Resource not accessible by integration/i.test(message);
-    if (isPermissionError) {
-      core.warning(
-        "Check_run write skipped (token lacks checks:write \u2014 common on fork PRs). Falling back to job exit-code gating."
-      );
-      return;
-    }
-    throw err;
-  }
-};
 var run = async () => {
   const inputs = parseInputs({
     context: core.getInput("context"),
@@ -24244,7 +24229,7 @@ var run = async () => {
   }
   if (mode === "pending") {
     if (inputs.mode === "main-gate") {
-      await tryWriteCheckRun(octokit, {
+      await writeCheckRun(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
         sha,
@@ -24328,7 +24313,7 @@ var run = async () => {
   core.endGroup();
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`;
   if (inputs.mode === "main-gate") {
-    await tryWriteCheckRun(octokit, {
+    await writeCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
       sha,

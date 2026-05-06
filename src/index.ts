@@ -12,11 +12,7 @@ import {
   parseCurrentWorkflowPath
 } from './self-exclusion.js'
 import { pollUntilComplete } from './polling.js'
-import {
-  buildTargetUrl,
-  writeCheckRun,
-  type WriteCheckRunInput
-} from './check-run.js'
+import { buildTargetUrl, writeCheckRun } from './check-run.js'
 
 const PENDING_DESCRIPTION =
   'Click "Enable Auto Merge" on this PR to start the gate.'
@@ -77,31 +73,6 @@ const writeSummary = async (input: SummaryInput): Promise<void> => {
       ['polling iterations', String(input.iterations)]
     ])
     .write()
-}
-
-// Check_run write is a courtesy in v2: gating is done via the gate job's
-// exit code (the check_run conclusion). When the token is read-only (the
-// default on fork PRs), the API returns 403 — log a warning and continue.
-// The polling verdict still drives the job's exit code.
-const tryWriteCheckRun = async (
-  octokit: OctokitLike,
-  input: WriteCheckRunInput
-): Promise<void> => {
-  try {
-    await writeCheckRun(octokit, input)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    const isPermissionError =
-      /\b403\b/.test(message) ||
-      /Resource not accessible by integration/i.test(message)
-    if (isPermissionError) {
-      core.warning(
-        'Check_run write skipped (token lacks checks:write — common on fork PRs). Falling back to job exit-code gating.'
-      )
-      return
-    }
-    throw err
-  }
 }
 
 const run = async (): Promise<void> => {
@@ -184,7 +155,7 @@ const run = async (): Promise<void> => {
 
   if (mode === 'pending') {
     if (inputs.mode === 'main-gate') {
-      await tryWriteCheckRun(octokit, {
+      await writeCheckRun(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
         sha,
@@ -280,7 +251,7 @@ const run = async (): Promise<void> => {
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`
 
   if (inputs.mode === 'main-gate') {
-    await tryWriteCheckRun(octokit, {
+    await writeCheckRun(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
       sha,
