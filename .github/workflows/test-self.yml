@@ -30,5 +30,6 @@ jobs:
       - name: Self-host gate
         uses: ./
         with:
+          mode: main-gate
           context: 'automerge-gate/self-test'
           ignore-checks: 'automerge-gate/self-test'
