@@ -19747,22 +19747,22 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       process.stdout.write(message + os.EOL);
     }
     exports2.info = info2;
-    function startGroup(name) {
+    function startGroup2(name) {
       (0, command_1.issue)("group", name);
     }
-    exports2.startGroup = startGroup;
-    function endGroup() {
+    exports2.startGroup = startGroup2;
+    function endGroup2() {
       (0, command_1.issue)("endgroup");
     }
-    exports2.endGroup = endGroup;
+    exports2.endGroup = endGroup2;
     function group(name, fn) {
       return __awaiter(this, void 0, void 0, function* () {
-        startGroup(name);
+        startGroup2(name);
         let result;
         try {
           result = yield fn();
         } finally {
-          endGroup();
+          endGroup2();
         }
         return result;
       });
@@ -24144,6 +24144,7 @@ var run = async () => {
     core.setFailed("pull_request payload is missing");
     return;
   }
+  core.startGroup("Setup");
   core.info(`Event: ${ctx.eventName} (action=${action})`);
   core.info(`PR #${pr.number}, head SHA ${pr.head.sha}`);
   const sha = pr.head.sha;
@@ -24165,6 +24166,7 @@ var run = async () => {
     core.info(
       `Fork PR detected (head_repo.id=${headRepo?.id ?? "null"} \u2260 base_repo.id=${baseRepoId}); fork-policy=${inputs.forkPolicy}`
     );
+    core.endGroup();
     if (inputs.forkPolicy === "skip") {
       core.info(
         "Fork PR detected; skipping (no status written) per fork-policy=skip."
@@ -24217,6 +24219,7 @@ var run = async () => {
     isAutoMergeAlreadyEnabled: pr.auto_merge !== null
   });
   core.info(`Mode: ${mode}`);
+  core.endGroup();
   if (mode === "skip") {
     core.warning(`Skipping unsupported pull_request action: "${action}"`);
     await writeSummary({
@@ -24293,6 +24296,7 @@ var run = async () => {
       throw err;
     }
   };
+  core.startGroup("Polling");
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
     onIteration: (s) => {
@@ -24301,12 +24305,15 @@ var run = async () => {
       );
     }
   });
+  core.endGroup();
+  core.startGroup("Result");
   core.info(
     `Polling finished: state=${pollResult.state}, iterations=${pollResult.iterations}`
   );
   core.info(
     `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
   );
+  core.endGroup();
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`;
   await writeCommitStatus(octokit, {
     owner: ctx.repo.owner,

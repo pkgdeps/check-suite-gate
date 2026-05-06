@@ -105,6 +105,7 @@ const run = async (): Promise<void> => {
     return
   }
 
+  core.startGroup('Setup')
   core.info(`Event: ${ctx.eventName} (action=${action})`)
   core.info(`PR #${pr.number}, head SHA ${pr.head.sha}`)
 
@@ -136,6 +137,7 @@ const run = async (): Promise<void> => {
     core.info(
       `Fork PR detected (head_repo.id=${headRepo?.id ?? 'null'} ≠ base_repo.id=${baseRepoId}); fork-policy=${inputs.forkPolicy}`
     )
+    core.endGroup()
     if (inputs.forkPolicy === 'skip') {
       core.info(
         'Fork PR detected; skipping (no status written) per fork-policy=skip.'
@@ -197,6 +199,7 @@ const run = async (): Promise<void> => {
   })
 
   core.info(`Mode: ${mode}`)
+  core.endGroup()
 
   if (mode === 'skip') {
     core.warning(`Skipping unsupported pull_request action: "${action}"`)
@@ -284,6 +287,7 @@ const run = async (): Promise<void> => {
   // Polling has no internal timeout. The job's timeout-minutes will kill
   // this run if checks take too long; commit status remains as last
   // written (= the pending we set in pending mode).
+  core.startGroup('Polling')
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
     onIteration: (s) => {
@@ -292,13 +296,16 @@ const run = async (): Promise<void> => {
       )
     }
   })
+  core.endGroup()
 
+  core.startGroup('Result')
   core.info(
     `Polling finished: state=${pollResult.state}, iterations=${pollResult.iterations}`
   )
   core.info(
     `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
   )
+  core.endGroup()
 
   const description = `${pollResult.state}: ${lastEvaluated} checks evaluated`
 
