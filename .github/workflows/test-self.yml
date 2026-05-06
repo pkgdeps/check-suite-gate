@@ -3,6 +3,8 @@ name: test-self
 on:
   pull_request:
     types: [opened, synchronize, reopened, auto_merge_enabled]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   checks: write
@@ -29,6 +31,6 @@ jobs:
       - name: Self-host gate
         uses: ./
         with:
-          mode: main-gate
+          gate: main
           context: 'automerge-gate/self-test'
           ignore-checks: 'automerge-gate/self-test'

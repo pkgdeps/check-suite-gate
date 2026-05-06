@@ -18,6 +18,7 @@ import {
   markCheckRunStale,
   type CheckRunOutput
 } from './check-run.js'
+import { determineMode, isHeadShaAction } from './mode.js'
 
 const ZERO_SHA = '0000000000000000000000000000000000000000'
 
@@ -64,35 +65,6 @@ const buildPollingOutput = (
   return { title, summary }
 }
 
-// pull_request activity types that may bring a new HEAD SHA to the PR.
-// The gate re-evaluates the SHA on these. Triggers pending mode by default,
-// or polling mode when Auto Merge is already enabled.
-const HEAD_SHA_ACTIONS = ['opened', 'synchronize', 'reopened'] as const
-type HeadShaAction = (typeof HEAD_SHA_ACTIONS)[number]
-const isHeadShaAction = (a: string): a is HeadShaAction =>
-  (HEAD_SHA_ACTIONS as readonly string[]).includes(a)
-
-// Mutually exclusive modes the action can run in for a given pull_request event.
-//   polling — poll the Checks API and (try to) write the aggregated status when done.
-//   pending — write a pending status with "Awaiting Auto Merge enable" and exit.
-//   skip    — do nothing for unsupported activity types.
-type ActionMode = 'polling' | 'pending' | 'skip'
-
-type DetermineModeInput = {
-  action: string
-  isHeadShaEvent: boolean
-  isAutoMergeAlreadyEnabled: boolean
-}
-
-const determineMode = (input: DetermineModeInput): ActionMode => {
-  const { action, isHeadShaEvent, isAutoMergeAlreadyEnabled } = input
-  if (action === 'auto_merge_enabled') return 'polling'
-  if (isHeadShaEvent) {
-    return isAutoMergeAlreadyEnabled ? 'polling' : 'pending'
-  }
-  return 'skip'
-}
-
 type SummaryInput = {
   state: string
   mode: string
@@ -112,7 +84,7 @@ const writeSummary = async (input: SummaryInput): Promise<void> => {
         { data: 'Field', header: true },
         { data: 'Value', header: true }
       ],
-      ['mode', input.mode],
+      ['action mode', input.mode],
       ['state', input.state],
       ['total checks (pre-filter)', String(input.total)],
       ['evaluated checks (post-filter)', String(input.evaluated)],
@@ -127,20 +99,23 @@ const run = async (): Promise<void> => {
     context: core.getInput('context'),
     ignoreApps: core.getInput('ignore-apps'),
     ignoreChecks: core.getInput('ignore-checks'),
-    mode: core.getInput('mode'),
+    gate: core.getInput('gate'),
     token: core.getInput('token'),
     pollIntervalSeconds: core.getInput('poll-interval-seconds')
   })
 
   const ctx = github.context
-  if (ctx.eventName !== 'pull_request') {
+  const SUPPORTED_EVENTS = ['pull_request', 'pull_request_review'] as const
+  if (!(SUPPORTED_EVENTS as readonly string[]).includes(ctx.eventName)) {
     core.warning(
-      `automerge-gate only handles pull_request events; got "${ctx.eventName}". Skipping.`
+      `automerge-gate only handles pull_request / pull_request_review events; got "${ctx.eventName}". Skipping.`
     )
     return
   }
 
   const action = (ctx.payload as { action?: string }).action ?? ''
+  // Both pull_request and pull_request_review payloads carry a
+  // `pull_request` object with the same shape we need here.
   const pr = ctx.payload.pull_request as
     | {
         number: number
@@ -152,6 +127,10 @@ const run = async (): Promise<void> => {
     core.setFailed('pull_request payload is missing')
     return
   }
+  const reviewState =
+    ctx.eventName === 'pull_request_review'
+      ? ((ctx.payload as { review?: { state?: string } }).review?.state ?? null)
+      : null
 
   core.startGroup('Setup')
   core.info(`Event: ${ctx.eventName} (action=${action})`)
@@ -172,19 +151,15 @@ const run = async (): Promise<void> => {
 
   const octokit = github.getOctokit(inputs.token) as unknown as OctokitLike
 
-  // Decide which mode to run.
-  // Polling mode: maintainer pressed "Enable Auto Merge" (auto_merge_enabled
-  // activity), OR Auto Merge is already enabled and a new SHA landed on
-  // the PR (e.g. a Renovate-style auto-merge-on-creation PR).
-  // Pending mode: a new SHA landed but Auto Merge is not yet enabled. We
-  // just mark the required check pending so the merge stays blocked.
-  const mode: ActionMode = determineMode({
+  const { mode, reason } = determineMode({
+    eventName: ctx.eventName,
     action,
+    reviewState,
     isHeadShaEvent: isHeadShaAction(action),
     isAutoMergeAlreadyEnabled: pr.auto_merge !== null
   })
 
-  core.info(`Mode: ${mode}`)
+  core.info(`Mode: ${mode} — ${reason}`)
   core.endGroup()
 
   if (mode === 'skip') {
@@ -205,7 +180,7 @@ const run = async (): Promise<void> => {
   // for every superseded push. Only synchronize carries `before`; opened
   // / reopened / auto_merge_enabled don't bring a previous SHA we'd
   // need to clean up.
-  if (inputs.mode === 'main-gate' && action === 'synchronize') {
+  if (inputs.gate === 'main' && action === 'synchronize') {
     const before = (ctx.payload as { before?: string }).before
     if (before !== undefined && before !== ZERO_SHA && before !== sha) {
       await markCheckRunStale(octokit, {
@@ -218,7 +193,7 @@ const run = async (): Promise<void> => {
   }
 
   if (mode === 'pending') {
-    if (inputs.mode === 'main-gate') {
+    if (inputs.gate === 'main') {
       await writeCheckRun(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
@@ -312,7 +287,7 @@ const run = async (): Promise<void> => {
   )
   core.endGroup()
 
-  if (inputs.mode === 'main-gate') {
+  if (inputs.gate === 'main') {
     const pollingOutput =
       pollResult.state === 'pending'
         ? buildPendingOutput()

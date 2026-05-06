@@ -23907,11 +23907,9 @@ var parsePositiveInt = (raw, name) => {
   }
   return n;
 };
-var parseMode = (raw) => {
-  if (raw === "main-gate" || raw === "fork-gate") return raw;
-  throw new Error(
-    `input \`mode\` must be "main-gate" or "fork-gate" (got: "${raw}")`
-  );
+var parseGate = (raw) => {
+  if (raw === "main" || raw === "fork") return raw;
+  throw new Error(`input \`gate\` must be "main" or "fork" (got: "${raw}")`);
 };
 var parseInputs = (raw) => {
   if (raw.token.trim().length === 0) {
@@ -23921,7 +23919,7 @@ var parseInputs = (raw) => {
     context: raw.context,
     ignoreApps: parseList(raw.ignoreApps),
     ignoreChecks: parseList(raw.ignoreChecks),
-    mode: parseMode(raw.mode),
+    gate: parseGate(raw.gate),
     token: raw.token,
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
@@ -24143,6 +24141,53 @@ var markCheckRunStale = async (octokit, input, retryOptions = {
   }
 };
 
+// src/mode.ts
+var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
+var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
+var determineMode = (input) => {
+  const {
+    eventName,
+    action,
+    reviewState,
+    isHeadShaEvent,
+    isAutoMergeAlreadyEnabled
+  } = input;
+  if (eventName === "pull_request_review") {
+    if (action === "submitted" && reviewState === "approved") {
+      return {
+        mode: "polling",
+        reason: "reviewer Approved (interpreted as merge intent \u2014 pull_request_review.submitted with state=approved)"
+      };
+    }
+    return {
+      mode: "skip",
+      reason: `pull_request_review ignored (action=${action}, state=${reviewState ?? "null"})`
+    };
+  }
+  if (action === "auto_merge_enabled") {
+    return {
+      mode: "polling",
+      reason: "Enable auto-merge clicked (pull_request.auto_merge_enabled)"
+    };
+  }
+  if (isHeadShaEvent) {
+    if (isAutoMergeAlreadyEnabled) {
+      return {
+        mode: "polling",
+        reason: `new HEAD landed (action=${action}) while auto-merge is already enabled \u2014 re-evaluating`
+      };
+    }
+    return {
+      mode: "pending",
+      reason: `new HEAD landed (action=${action}); waiting for merge intent (Enable auto-merge or an Approve review)`
+    };
+  }
+  return {
+    mode: "skip",
+    reason: `unsupported activity (eventName=${eventName}, action=${action})`
+  };
+};
+
 // src/index.ts
 var ZERO_SHA = "0000000000000000000000000000000000000000";
 var buildPendingOutput = () => ({
@@ -24168,16 +24213,6 @@ var buildPollingOutput = (state, stats) => {
   ].join("\n");
   return { title, summary: summary2 };
 };
-var HEAD_SHA_ACTIONS = ["opened", "synchronize", "reopened"];
-var isHeadShaAction = (a) => HEAD_SHA_ACTIONS.includes(a);
-var determineMode = (input) => {
-  const { action, isHeadShaEvent, isAutoMergeAlreadyEnabled } = input;
-  if (action === "auto_merge_enabled") return "polling";
-  if (isHeadShaEvent) {
-    return isAutoMergeAlreadyEnabled ? "polling" : "pending";
-  }
-  return "skip";
-};
 var writeSummary = async (input) => {
   const stateEmoji = input.state === "success" ? "\u2705" : input.state === "failure" ? "\u274C" : "\u{1F7E1}";
   await core.summary.addHeading(`${stateEmoji} automerge-gate: ${input.state}`).addTable([
@@ -24185,7 +24220,7 @@ var writeSummary = async (input) => {
       { data: "Field", header: true },
       { data: "Value", header: true }
     ],
-    ["mode", input.mode],
+    ["action mode", input.mode],
     ["state", input.state],
     ["total checks (pre-filter)", String(input.total)],
     ["evaluated checks (post-filter)", String(input.evaluated)],
@@ -24198,14 +24233,15 @@ var run = async () => {
     context: core.getInput("context"),
     ignoreApps: core.getInput("ignore-apps"),
     ignoreChecks: core.getInput("ignore-checks"),
-    mode: core.getInput("mode"),
+    gate: core.getInput("gate"),
     token: core.getInput("token"),
     pollIntervalSeconds: core.getInput("poll-interval-seconds")
   });
   const ctx = github.context;
-  if (ctx.eventName !== "pull_request") {
+  const SUPPORTED_EVENTS = ["pull_request", "pull_request_review"];
+  if (!SUPPORTED_EVENTS.includes(ctx.eventName)) {
     core.warning(
-      `automerge-gate only handles pull_request events; got "${ctx.eventName}". Skipping.`
+      `automerge-gate only handles pull_request / pull_request_review events; got "${ctx.eventName}". Skipping.`
     );
     return;
   }
@@ -24215,6 +24251,7 @@ var run = async () => {
     core.setFailed("pull_request payload is missing");
     return;
   }
+  const reviewState = ctx.eventName === "pull_request_review" ? ctx.payload.review?.state ?? null : null;
   core.startGroup("Setup");
   core.info(`Event: ${ctx.eventName} (action=${action})`);
   core.info(`PR #${pr.number}, head SHA ${pr.head.sha}`);
@@ -24230,12 +24267,14 @@ var run = async () => {
     runAttempt
   });
   const octokit = github.getOctokit(inputs.token);
-  const mode = determineMode({
+  const { mode, reason } = determineMode({
+    eventName: ctx.eventName,
     action,
+    reviewState,
     isHeadShaEvent: isHeadShaAction(action),
     isAutoMergeAlreadyEnabled: pr.auto_merge !== null
   });
-  core.info(`Mode: ${mode}`);
+  core.info(`Mode: ${mode} \u2014 ${reason}`);
   core.endGroup();
   if (mode === "skip") {
     core.warning(`Skipping unsupported pull_request action: "${action}"`);
@@ -24249,7 +24288,7 @@ var run = async () => {
     });
     return;
   }
-  if (inputs.mode === "main-gate" && action === "synchronize") {
+  if (inputs.gate === "main" && action === "synchronize") {
     const before = ctx.payload.before;
     if (before !== void 0 && before !== ZERO_SHA && before !== sha) {
       await markCheckRunStale(octokit, {
@@ -24261,7 +24300,7 @@ var run = async () => {
     }
   }
   if (mode === "pending") {
-    if (inputs.mode === "main-gate") {
+    if (inputs.gate === "main") {
       await writeCheckRun(octokit, {
         owner: ctx.repo.owner,
         repo: ctx.repo.repo,
@@ -24344,7 +24383,7 @@ var run = async () => {
     `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
   );
   core.endGroup();
-  if (inputs.mode === "main-gate") {
+  if (inputs.gate === "main") {
     const pollingOutput = pollResult.state === "pending" ? buildPendingOutput() : buildPollingOutput(pollResult.state, {
       total: lastTotal,
       evaluated: lastEvaluated,
