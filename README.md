@@ -2,9 +2,6 @@
 
 A single required check that gates **Enable Auto Merge** on every CI run that lands on a PR.
 
-> [!IMPORTANT]
-> **v2 breaking change.** v2 gates merge via the gate job's check_run conclusion (the action exits with success or failure). The recommended workflow uses a 2-job pattern with an `if:` mutex: a `gate` job for same-repo PRs (writes commit status) and a `fork-gate` job for fork PRs (named `automerge-gate/all-passed` so the check_run satisfies the required check). The `fork-policy` input has been removed. See [Migration from v1](#migration-from-v1) if upgrading.
-
 ## Why
 
 GitHub's branch protection / rulesets ask you to list each required status check by name. That list is fragile:
@@ -213,7 +210,7 @@ In `fork` mode the action never writes a commit status; the gate is the job's ow
 
 - **`pull_request.auto_merge_enabled` has no recursion guard** unlike `check_suite.completed`, so the gate reliably fires on GitHub-Actions-only repos.
 - **Polling is gated by an explicit signal** (Enable Auto Merge), so PRs the maintainer hasn't yet decided to merge don't burn runner minutes. Compared with merge-gatekeeper, which polls on every PR push, the resource cost scales with merge intent rather than with PR throughput.
-- **Gating is the gate job's check_run conclusion, not a commit status.** GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate can't run there at all. By gating on the job's exit code (the check_run conclusion), v2 works uniformly for same-repo and fork PRs without a separate fork-policy. The aggregated commit status is still written as a courtesy when the token has write permission — the dual signal is convenient when both are visible.
+- **Gating is the gate job's check_run conclusion, not a commit status.** GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate can't run there at all. By gating on the job's exit code (the check_run conclusion), the action works uniformly for same-repo and fork PRs. The aggregated commit status is still written as a courtesy when the token has write permission — the dual signal is convenient when both are visible.
 - **The aggregated check_run is the gate job's own conclusion** (named `automerge-gate/all-passed` to match the required check). There's no self-referencing loop in the github-actions check_suite — the gate doesn't see its own writes when it polls because it filters out check_runs from its own workflow.
 - **GitHub native auto-merge handles the merge itself** once the required check turns green. This Action does not call `pulls.merge`.
 - **No internal timeout input** — timeout is managed by the job's `timeout-minutes`. Having two timeouts to keep in sync (action input vs job-level) is a footgun, so the action delegates fully. There's exactly one knob, and it's a standard GitHub Actions feature.
@@ -222,12 +219,8 @@ In `fork` mode the action never writes a commit status; the gate is the job's ow
 
 - **Merge queue (`merge_group`)** is not supported.
 - **Dead runner / job timeout**: if the runner is killed mid-polling (job hits `timeout-minutes`, dies physically, etc.), the gate job's check_run becomes `failure` (or `cancelled`), so the required check stays red and merge stays blocked. The maintainer can disable then re-enable Auto Merge to re-trigger.
-- **Legacy commit status events**: third-party CI that writes via the legacy commit status API may not appear in `check_suite` and would not be aggregated. v2 does not handle the `status` event.
+- **Legacy commit status events**: third-party CI that writes via the legacy commit status API may not appear in `check_suite` and would not be aggregated. The action does not handle the `status` event.
 - **Stale `pending` on past commits**: when the courtesy commit-status write succeeds, each push to a PR appends a `pending` status to the new HEAD SHA. GitHub's commit status API is append-only — past SHAs keep that `pending` in their history forever (no API to delete or overwrite). This has no effect on the PR's HEAD evaluation or on auto-merge (both look only at the latest SHA), but the per-commit hover in the PR's Commits tab will show `pending` for older SHAs.
-
-## v1 (archived)
-
-The previous version of this Action under the name `check-suite-gate` is preserved in the git history of this repository. The post-mortem on why it didn't work (Japanese) is in [`docs/lessons/2026-05-05-check-suite-recursion-finding.md`](docs/lessons/2026-05-05-check-suite-recursion-finding.md). The v1 spec and plan are also kept under `docs/superpowers/specs/` and `docs/superpowers/plans/` for reference.
 
 ## Versioning
 
@@ -261,44 +254,6 @@ All releases are cut from the GitHub web UI. There is no release script and no `
 ### After publishing
 
 Users pin a fixed version: `uses: pkgdeps/automerge-gate@v2.0.0`. Renovate / Dependabot will open update PRs as new versions ship.
-
-## Migration from v1
-
-v2 is a breaking change. To upgrade:
-
-1. **Replace the single `gate` job with the 2-job pattern** shown in [Usage](#usage). The new layout has a `gate` job (same-repo, commit-status mode) and a `fork-gate` job (fork PRs, fork-gate mode), separated by an `if:` mutex on `head.repo.id == base.repo.id`.
-2. **Remove the `fork-policy` input.** The input no longer exists and the action will fail to start if it's set.
-   - If you used `fork-policy: success`, the new `fork-gate` job replaces it: the job runs the action in `fork` mode and the job's check_run conclusion satisfies the required check.
-   - If you used `fork-policy: skip`, the `fork-gate` job replaces it as well — fork PRs are now gated normally rather than auto-bypassed. If you genuinely want to skip the gate on fork PRs, omit the `fork-gate` job from the workflow; the required check will then never be produced for fork PRs and they will be merge-blocked unless an admin overrides.
-3. **Update `uses:` to `pkgdeps/automerge-gate@v2.0.0`**.
-
-Diff of a typical v1 → v2 workflow change:
-
-```diff
- jobs:
-   gate:
-+    if: github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
-     runs-on: ubuntu-latest
-     timeout-minutes: 10
-     steps:
--      - uses: pkgdeps/automerge-gate@v1.0.0
-+      - uses: pkgdeps/automerge-gate@v2.0.0
-         with:
-           context: 'automerge-gate/all-passed'
--          fork-policy: success
-+
-+  fork-gate:
-+    if: github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id
-+    name: automerge-gate/all-passed
-+    runs-on: ubuntu-latest
-+    timeout-minutes: 10
-+    steps:
-+      - uses: pkgdeps/automerge-gate@v2.0.0
-+        with:
-+          mode: fork-gate
-```
-
-Background: v1's `fork-policy=success` did not work in practice because GitHub Actions forces `GITHUB_TOKEN` read-only on fork PRs, so the status-write call returned 403 and the workflow failed. v2 gates via the job's exit code (the check_run conclusion) on fork PRs, which doesn't need `statuses: write`. The 2-job split keeps the same-repo path on the established commit-status mechanism and only switches to check_run-name gating where status writes are impossible.
 
 ## License
 
