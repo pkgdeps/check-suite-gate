@@ -38,13 +38,11 @@ sequenceDiagram
 3. The action exits the job with success (all checks green) or failure (any check red). The job's `check_run` conclusion — named `automerge-gate/all-passed` to match the required-check context — is what GitHub's required-check evaluates.
 4. GitHub's native auto-merge takes care of the actual merge once the required check is green.
 
-**If Auto Merge is already enabled when you push a new commit**: the action treats the synchronize event the same as `auto_merge_enabled` — it polls until all checks complete, then exits with the verdict. So you don't need to disable→enable Auto Merge after every push to retrigger the gate.
+**If Auto Merge is already enabled when you push a new commit**: the action treats the synchronize event the same as `auto_merge_enabled` — it polls until all checks complete, then exits with the verdict. You don't need to disable→enable Auto Merge after every push.
 
-As a courtesy, the `main-gate` job (main-gate mode) writes an aggregated commit status (`automerge-gate/all-passed`) so the status appears next to other commit statuses in the PR UI. Fork PRs are handled by the separate `fork-gate` job (fork-gate mode) where the job's check_run name itself satisfies the required check.
+### Same-repo vs fork PRs
 
-### Fork PRs
-
-GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate cannot run there. The recommended workflow uses a 2-job pattern with an `if:` mutex on `head.repo.id == base.repo.id`, so exactly one job runs per PR:
+GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate can't run there. The recommended workflow uses a 2-job pattern with an `if:` mutex on `head.repo.id == base.repo.id`, so exactly one job runs per PR:
 
 ```mermaid
 flowchart TD
@@ -55,7 +53,9 @@ flowchart TD
     ForkGate --> Done2[automerge-gate/all-passed satisfied<br/>by job's check_run conclusion]
 ```
 
-The `fork-gate` job sets `name: automerge-gate/all-passed` so GitHub names its check_run after the job. The required check is satisfied directly by the fork-gate job's conclusion — no token write needed. The action runs in `mode: fork-gate` and never attempts a status write. Skipped jobs (the inactive branch of the mutex) do not block the required check.
+- **`main-gate` job** (same-repo): writes the aggregated commit status as a courtesy, since the same-repo token has full write permission. The status appears next to other commit statuses in the PR UI.
+- **`fork-gate` job** (fork): sets `name: automerge-gate/all-passed` so GitHub names its check_run after the job. The required check is satisfied directly by the job's conclusion — no token write needed.
+- The skipped job (inactive branch of the mutex) does not block the required check.
 
 Note: GitHub rulesets only support AND across required checks (no OR / conditional logic), so this action is the place where "all of these checks across workflows must pass" is expressed as a single check.
 
@@ -201,9 +201,6 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
           mode: main-gate
           poll-interval-seconds: '10'
 ```
-```
-
-In `fork` mode the action never writes a commit status; the gate is the job's own check_run conclusion, which is named after the job (`automerge-gate/all-passed` here) and matches the required check in your ruleset.
 
 ## Outputs
 
@@ -213,14 +210,13 @@ In `fork` mode the action never writes a commit status; the gate is the job's ow
 | `total-checks` | Number of check_runs observed before filtering |
 | `evaluated-checks` | Number of check_runs after filters |
 | `completed-checks` | Number of completed check_runs after filters |
-| `polled-iterations` | Number of polling iterations (0 in pending mode) |
+| `polled-iterations` | Number of polling iterations performed |
 
 ## Why this design
 
 - **`pull_request.auto_merge_enabled` has no recursion guard** unlike `check_suite.completed`, so the gate reliably fires on GitHub-Actions-only repos.
 - **Polling is gated by an explicit signal** (Enable Auto Merge), so PRs the maintainer hasn't yet decided to merge don't burn runner minutes. Compared with merge-gatekeeper, which polls on every PR push, the resource cost scales with merge intent rather than with PR throughput.
-- **Gating is the gate job's check_run conclusion, not a commit status.** GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate can't run there at all. By gating on the job's exit code (the check_run conclusion), the action works uniformly for same-repo and fork PRs. The aggregated commit status is still written as a courtesy when the token has write permission — the dual signal is convenient when both are visible.
-- **The aggregated check_run is the gate job's own conclusion** (named `automerge-gate/all-passed` to match the required check). There's no self-referencing loop in the github-actions check_suite — the gate doesn't see its own writes when it polls because it filters out check_runs from its own workflow.
+- **Gating is the gate job's check_run conclusion, not a commit status.** GitHub forces `GITHUB_TOKEN` read-only on fork PRs, so a status-write-based gate can't run there at all. By gating on the job's exit code (the check_run conclusion named `automerge-gate/all-passed` to match the required check), the action works uniformly for same-repo and fork PRs. The aggregated commit status is still written as a courtesy in `main-gate` mode when the token has write permission — the dual signal is convenient when both are visible. There's no self-referencing loop because the action filters out check_runs from its own workflow.
 - **GitHub native auto-merge handles the merge itself** once the required check turns green. This Action does not call `pulls.merge`.
 - **No internal timeout input** — timeout is managed by the job's `timeout-minutes`. Having two timeouts to keep in sync (action input vs job-level) is a footgun, so the action delegates fully. There's exactly one knob, and it's a standard GitHub Actions feature.
 
@@ -233,7 +229,7 @@ In `fork` mode the action never writes a commit status; the gate is the job's ow
 
 ## Versioning
 
-Releases are published as **immutable semver tags** (`v1.0.0`, `v1.1.0`, ...). There is intentionally no moving major tag (`v1`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
+Releases are published as **immutable semver tags** (`v2.0.0`, `v2.1.0`, ...). There is intentionally no moving major tag (`v2`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
 
 ## Releasing (maintainers)
 
@@ -251,9 +247,9 @@ All releases are cut from the GitHub web UI. There is no release script and no `
 ### Cutting a release
 
 1. Go to **Releases → Draft a new release**.
-2. **Choose a tag**: type the new version (e.g. `v1.0.0`) and select *Create new tag on publish*.
+2. **Choose a tag**: type the new version (e.g. `v2.0.0`) and select *Create new tag on publish*.
 3. **Target**: `main`.
-4. **Release title**: same as the tag (e.g. `v1.0.0`).
+4. **Release title**: same as the tag (e.g. `v2.0.0`).
 5. Click **Generate release notes** to autopopulate from PRs / commits since the last tag.
 6. **Set as the latest release**: ✅
 7. **Mark as an immutable release** (Public Preview): ✅ if the option is shown — locks the tag and asset checksums so they cannot be silently rewritten later.
