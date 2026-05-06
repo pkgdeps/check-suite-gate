@@ -85,6 +85,7 @@ Then register `automerge-gate/all-passed` as a required status check in your rul
 | `ignore-apps` | no | (empty) | GitHub App slugs to exclude. Comma-separated **or newline-separated** |
 | `ignore-checks` | no | (empty) | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated** |
 | `token` | no | `${{ github.token }}` | GitHub token |
+| `fork-policy` | no | `skip` | How to handle fork PRs. `skip` writes no status (maintainer handles manually). `success` writes a success status, delegating gating to other required checks (e.g. ci.yml) |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
 
@@ -108,7 +109,7 @@ There is **no `timeout-seconds` input on purpose** — timeout is delegated enti
 
 ## Limitations
 
-- **Fork PRs** are not supported — secrets and write tokens behave differently across base/fork boundaries.
+- **Fork PRs**: GitHub Actions issues a read-only `GITHUB_TOKEN` for fork PRs by default, so the action cannot write a commit status. Use the `fork-policy` input to decide what should happen: `skip` (default) leaves the required check unset (maintainer handles the PR manually), `success` writes a success status delegating gating to other required checks. To actually run the polling loop on fork PRs, you would also need to enable "Send write tokens to workflows from fork pull requests" in repository settings — this is not verified in v1.
 - **Merge queue (`merge_group`)** is not supported in v1.
 - **Dead runner / job timeout**: if the runner is killed mid-polling (job hits `timeout-minutes`, dies physically, etc.), the commit status remains as it was last written (`pending`). The maintainer can disable then re-enable Auto Merge to re-trigger.
 - **Legacy commit status events**: third-party CI that writes via the legacy commit status API may not appear in `check_suite` and would not be aggregated. v2 does not handle the `status` event.

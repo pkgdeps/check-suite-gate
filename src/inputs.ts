@@ -6,6 +6,7 @@ export type RawInputs = {
   ignoreChecks: string
   token: string
   pollIntervalSeconds: string
+  forkPolicy: string
 }
 
 export type ParsedInputs = {
@@ -14,6 +15,7 @@ export type ParsedInputs = {
   ignoreChecks: string[]
   token: string
   pollIntervalSeconds: number
+  forkPolicy: 'skip' | 'success'
 }
 
 const parsePositiveInt = (raw: string, name: string): number => {
@@ -24,6 +26,13 @@ const parsePositiveInt = (raw: string, name: string): number => {
     )
   }
   return n
+}
+
+const parseForkPolicy = (raw: string): 'skip' | 'success' => {
+  if (raw === 'skip' || raw === 'success') return raw
+  throw new Error(
+    `input \`fork-policy\` must be "skip" or "success" (got: "${raw}")`
+  )
 }
 
 export const parseInputs = (raw: RawInputs): ParsedInputs => {
@@ -38,6 +47,7 @@ export const parseInputs = (raw: RawInputs): ParsedInputs => {
     pollIntervalSeconds: parsePositiveInt(
       raw.pollIntervalSeconds,
       'poll-interval-seconds'
-    )
+    ),
+    forkPolicy: parseForkPolicy(raw.forkPolicy)
   }
 }

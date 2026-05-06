@@ -15,7 +15,8 @@ const run = async (): Promise<void> => {
     ignoreApps: core.getInput('ignore-apps'),
     ignoreChecks: core.getInput('ignore-checks'),
     token: core.getInput('token'),
-    pollIntervalSeconds: core.getInput('poll-interval-seconds')
+    pollIntervalSeconds: core.getInput('poll-interval-seconds'),
+    forkPolicy: core.getInput('fork-policy')
   })
 
   const ctx = github.context
@@ -49,6 +50,48 @@ const run = async (): Promise<void> => {
   })
 
   const octokit = github.getOctokit(inputs.token) as unknown as OctokitLike
+
+  // Detect fork PR: head_repo and base_repo differ.
+  // pr.head.repo can be null if the fork repo was deleted; treat as fork.
+  // Compare by id (immutable) rather than full_name (renames possible).
+  const baseRepoId = (pr as unknown as { base: { repo: { id: number } } }).base
+    .repo.id
+  const headRepo = (pr as unknown as { head: { repo: { id: number } | null } })
+    .head.repo
+  const isFork = headRepo == null || headRepo.id !== baseRepoId
+
+  if (isFork) {
+    if (inputs.forkPolicy === 'skip') {
+      core.info(
+        'Fork PR detected; skipping (no status written) per fork-policy=skip.'
+      )
+      core.setOutput('state', 'skipped')
+      core.setOutput('total-checks', '0')
+      core.setOutput('evaluated-checks', '0')
+      core.setOutput('completed-checks', '0')
+      core.setOutput('polled-iterations', '0')
+      return
+    }
+    // forkPolicy === 'success'
+    core.info(
+      'Fork PR detected; writing success status per fork-policy=success.'
+    )
+    await writeCommitStatus(octokit, {
+      owner: ctx.repo.owner,
+      repo: ctx.repo.repo,
+      sha,
+      state: 'success',
+      context: inputs.context,
+      description: 'Fork PR: gating delegated to other required checks',
+      target_url: targetUrl
+    })
+    core.setOutput('state', 'success')
+    core.setOutput('total-checks', '0')
+    core.setOutput('evaluated-checks', '0')
+    core.setOutput('completed-checks', '0')
+    core.setOutput('polled-iterations', '0')
+    return
+  }
 
   // Pending mode: PR was opened / synchronized / reopened.
   // Write a pending status with an action-item description and exit.
