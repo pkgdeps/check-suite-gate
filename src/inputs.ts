@@ -13,7 +13,7 @@ export type ParsedInputs = {
   context: string
   ignoreApps: string[]
   ignoreChecks: string[]
-  mode: 'commit-status' | 'fork'
+  mode: 'commit-status' | 'fork-gate'
   token: string
   pollIntervalSeconds: number
 }
@@ -28,10 +28,10 @@ const parsePositiveInt = (raw: string, name: string): number => {
   return n
 }
 
-const parseMode = (raw: string): 'commit-status' | 'fork' => {
-  if (raw === 'commit-status' || raw === 'fork') return raw
+const parseMode = (raw: string): 'commit-status' | 'fork-gate' => {
+  if (raw === 'commit-status' || raw === 'fork-gate') return raw
   throw new Error(
-    `input \`mode\` must be "commit-status" or "fork" (got: "${raw}")`
+    `input \`mode\` must be "commit-status" or "fork-gate" (got: "${raw}")`
   )
 }
 

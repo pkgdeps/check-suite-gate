@@ -23908,9 +23908,9 @@ var parsePositiveInt = (raw, name) => {
   return n;
 };
 var parseMode = (raw) => {
-  if (raw === "commit-status" || raw === "fork") return raw;
+  if (raw === "commit-status" || raw === "fork-gate") return raw;
   throw new Error(
-    `input \`mode\` must be "commit-status" or "fork" (got: "${raw}")`
+    `input \`mode\` must be "commit-status" or "fork-gate" (got: "${raw}")`
   );
 };
 var parseInputs = (raw) => {

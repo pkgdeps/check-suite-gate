@@ -50,11 +50,11 @@ describe('parseInputs', () => {
     )
   })
 
-  it("accepts mode = 'commit-status' or 'fork'", () => {
+  it("accepts mode = 'commit-status' or 'fork-gate'", () => {
     expect(parseInputs(raw({ mode: 'commit-status' })).mode).toBe(
       'commit-status'
     )
-    expect(parseInputs(raw({ mode: 'fork' })).mode).toBe('fork')
+    expect(parseInputs(raw({ mode: 'fork-gate' })).mode).toBe('fork-gate')
   })
 
   it('throws on invalid mode', () => {

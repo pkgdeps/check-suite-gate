@@ -30,7 +30,7 @@ inputs:
     required: false
     default: ''
   mode:
-    description: 'Gating mode. "commit-status" (default) writes the aggregated commit status. "fork" skips status writes entirely — use this in a fork-only job whose name matches the required check, since fork PRs have a read-only token.'
+    description: 'Gating mode. "commit-status" (default) writes the aggregated commit status. "fork-gate" skips status writes entirely — use this in a fork-only job whose name matches the required check, since fork PRs have a read-only token.'
     required: false
     default: 'commit-status'
   token:
