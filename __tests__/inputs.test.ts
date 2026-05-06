@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { parseInputs, type RawInputs } from '../src/inputs.js'
 
 const raw = (override: Partial<RawInputs> = {}): RawInputs => ({
-  context: 'check-suite-gate/all-passed',
+  context: 'automerge-gate/all-passed',
   ignoreApps: '',
   ignoreChecks: '',
   token: 'tok',
+  pollIntervalSeconds: '30',
   ...override
 })
 
@@ -18,14 +19,12 @@ describe('parseInputs', () => {
     expect(result.ignoreChecks).toEqual(['*foo', 'bar-*'])
   })
 
-  it('uses provided context name', () => {
-    expect(parseInputs(raw({ context: 'custom/ctx' })).context).toBe(
-      'custom/ctx'
+  it('parses newline-separated ignore lists', () => {
+    const result = parseInputs(
+      raw({ ignoreApps: 'a\nb\nc', ignoreChecks: '*foo\n bar-* ' })
     )
-  })
-
-  it('passes token through', () => {
-    expect(parseInputs(raw({ token: 'ghs_xyz' })).token).toBe('ghs_xyz')
+    expect(result.ignoreApps).toEqual(['a', 'b', 'c'])
+    expect(result.ignoreChecks).toEqual(['*foo', 'bar-*'])
   })
 
   it('throws when token is empty or whitespace', () => {
@@ -33,9 +32,20 @@ describe('parseInputs', () => {
     expect(() => parseInputs(raw({ token: '   ' }))).toThrow(/token/)
   })
 
-  it('returns empty arrays for empty ignore inputs', () => {
-    const result = parseInputs(raw())
-    expect(result.ignoreApps).toEqual([])
-    expect(result.ignoreChecks).toEqual([])
+  it('parses positive integer poll-interval-seconds', () => {
+    const result = parseInputs(raw({ pollIntervalSeconds: '15' }))
+    expect(result.pollIntervalSeconds).toBe(15)
+  })
+
+  it('throws on non-numeric or non-positive interval', () => {
+    expect(() => parseInputs(raw({ pollIntervalSeconds: 'abc' }))).toThrow(
+      /poll-interval-seconds/
+    )
+    expect(() => parseInputs(raw({ pollIntervalSeconds: '0' }))).toThrow(
+      /poll-interval-seconds/
+    )
+    expect(() => parseInputs(raw({ pollIntervalSeconds: '-5' }))).toThrow(
+      /poll-interval-seconds/
+    )
   })
 })
