@@ -15,84 +15,44 @@ const make = (
   ...override
 })
 
-describe('aggregate (normal mode)', () => {
-  it('writes pending if any check_run is not completed', () => {
-    const result = aggregate({
-      runs: [make(), make({ status: 'in_progress', conclusion: null })],
-      mode: 'normal'
-    })
+describe('aggregate', () => {
+  it('returns pending if any check_run is not completed', () => {
+    const result = aggregate([
+      make(),
+      make({ status: 'in_progress', conclusion: null })
+    ])
     expect(result.state).toBe('pending')
-    expect(result.mode).toBe('normal')
   })
 
-  it('writes success if all check_runs are green', () => {
-    const result = aggregate({
-      runs: [
-        make({ conclusion: 'success' }),
-        make({ conclusion: 'skipped' }),
-        make({ conclusion: 'neutral' })
-      ],
-      mode: 'normal'
-    })
+  it('returns success if all check_runs are green', () => {
+    const result = aggregate([
+      make({ conclusion: 'success' }),
+      make({ conclusion: 'skipped' }),
+      make({ conclusion: 'neutral' })
+    ])
     expect(result.state).toBe('success')
   })
 
-  it('writes failure if any check_run is red', () => {
-    const result = aggregate({
-      runs: [make({ conclusion: 'success' }), make({ conclusion: 'failure' })],
-      mode: 'normal'
-    })
+  it('returns failure if any completed check_run is red', () => {
+    const result = aggregate([
+      make({ conclusion: 'success' }),
+      make({ conclusion: 'failure' })
+    ])
     expect(result.state).toBe('failure')
   })
 
-  it('writes success when there are zero runs (vacuous)', () => {
-    const result = aggregate({ runs: [], mode: 'normal' })
+  it('returns success when there are zero runs (vacuous)', () => {
+    const result: AggregateResult = aggregate([])
     expect(result.state).toBe('success')
-  })
-})
-
-describe('aggregate (rescue mode)', () => {
-  it('ignores in_progress runs and evaluates the rest', () => {
-    const result = aggregate({
-      runs: [
-        make({ conclusion: 'success' }),
-        make({ status: 'in_progress', conclusion: null })
-      ],
-      mode: 'rescue'
-    })
-    expect(result.state).toBe('success')
-    expect(result.mode).toBe('rescue')
+    expect(result.total).toBe(0)
+    expect(result.completed).toBe(0)
   })
 
-  it('still fails if any completed run is red', () => {
-    const result = aggregate({
-      runs: [
-        make({ conclusion: 'failure' }),
-        make({ status: 'in_progress', conclusion: null })
-      ],
-      mode: 'rescue'
-    })
-    expect(result.state).toBe('failure')
-  })
-
-  it('writes success when only in_progress runs remain', () => {
-    const result = aggregate({
-      runs: [make({ status: 'in_progress', conclusion: null })],
-      mode: 'rescue'
-    })
-    expect(result.state).toBe('success')
-  })
-})
-
-describe('aggregate counts', () => {
   it('reports total / completed counts', () => {
-    const result: AggregateResult = aggregate({
-      runs: [
-        make({ conclusion: 'success' }),
-        make({ status: 'in_progress', conclusion: null })
-      ],
-      mode: 'normal'
-    })
+    const result = aggregate([
+      make({ conclusion: 'success' }),
+      make({ status: 'in_progress', conclusion: null })
+    ])
     expect(result.total).toBe(2)
     expect(result.completed).toBe(1)
   })
