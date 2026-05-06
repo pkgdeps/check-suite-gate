@@ -13,24 +13,53 @@ export const isHeadShaAction = (a: string): a is HeadShaAction =>
 export type ActionMode = 'polling' | 'pending' | 'skip'
 
 export type DetermineModeInput = {
+  /**
+   * GitHub Actions `eventName` (e.g. `pull_request`,
+   * `pull_request_review`). Determines which trigger family the action
+   * was invoked from; review-only logic only fires when this is
+   * `pull_request_review`.
+   */
   eventName: string
+  /**
+   * Activity type within the event (e.g. `opened`, `synchronize`,
+   * `auto_merge_enabled`, `submitted`). Comes from `payload.action`.
+   */
   action: string
+  /**
+   * Lowercase review state (`approved`, `changes_requested`,
+   * `commented`, ...) when `eventName === 'pull_request_review'`,
+   * otherwise `null`. Sourced from `payload.review.state`.
+   */
   reviewState: string | null
+  /**
+   * `true` when `action` is one of the activity types that brings a
+   * new HEAD SHA (`opened` / `synchronize` / `reopened`). Use
+   * `isHeadShaAction` to compute it from the action string.
+   */
   isHeadShaEvent: boolean
+  /**
+   * `true` when the PR's `auto_merge` field is non-null at the time
+   * of the event (i.e. a maintainer has already pressed "Enable auto-
+   * merge"). Used as a sticky merge-intent signal across pushes.
+   */
   isAutoMergeAlreadyEnabled: boolean
-  // Whether the PR currently has at least one active Approve review,
-  // determined by re-querying the PR's reviews on each HEAD SHA event.
-  // This makes Approve a sticky merge-intent flag (the gate stays
-  // polling on subsequent pushes), instead of only firing once on the
-  // single pull_request_review.submitted event.
+  /**
+   * `true` when the PR currently has at least one active Approve
+   * review, determined by re-querying the PR's reviews on each HEAD
+   * SHA event. Makes Approve a sticky merge-intent flag (the gate
+   * stays polling on subsequent pushes), instead of only firing once
+   * on the single `pull_request_review.submitted` event.
+   */
   isApproved: boolean
 }
 
 export type DetermineModeResult = {
   mode: ActionMode
-  // Human-readable explanation of why this mode was picked. Logged at
-  // INFO so the workflow run page makes the decision auditable without
-  // having to re-derive it from the trigger payload.
+  /**
+   * Human-readable explanation of why this mode was picked. Logged at
+   * INFO so the workflow run page makes the decision auditable without
+   * having to re-derive it from the trigger payload.
+   */
   reason: string
 }
 
