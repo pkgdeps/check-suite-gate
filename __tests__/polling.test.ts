@@ -1,0 +1,65 @@
+import { describe, it, expect, vi } from 'vitest'
+import { pollUntilComplete } from '../src/polling.js'
+import type { AggregatedCheckRun } from '../src/filter.js'
+
+const make = (
+  override: Partial<AggregatedCheckRun> = {}
+): AggregatedCheckRun => ({
+  id: 1,
+  name: 'x',
+  status: 'completed',
+  conclusion: 'success',
+  details_url: '',
+  app: { slug: 'github-actions' },
+  suite_id: 1,
+  ...override
+})
+
+const opts = { intervalSeconds: 0.001 } // 1 ms — keep test fast
+
+describe('pollUntilComplete', () => {
+  it('exits success on the first iteration when all runs are completed green', async () => {
+    const fetchRuns = vi
+      .fn()
+      .mockResolvedValue([make({ conclusion: 'success' })])
+    const result = await pollUntilComplete(fetchRuns, opts)
+    expect(result.state).toBe('success')
+    expect(result.iterations).toBe(1)
+    expect(fetchRuns).toHaveBeenCalledTimes(1)
+  })
+
+  it('exits failure when a completed red run is present', async () => {
+    const fetchRuns = vi
+      .fn()
+      .mockResolvedValue([make({ conclusion: 'failure' })])
+    const result = await pollUntilComplete(fetchRuns, opts)
+    expect(result.state).toBe('failure')
+  })
+
+  it('keeps polling while pending, then exits when checks complete', async () => {
+    const fetchRuns = vi
+      .fn()
+      .mockResolvedValueOnce([
+        make({ status: 'in_progress', conclusion: null })
+      ])
+      .mockResolvedValueOnce([
+        make({ status: 'in_progress', conclusion: null })
+      ])
+      .mockResolvedValueOnce([make({ conclusion: 'success' })])
+    const result = await pollUntilComplete(fetchRuns, opts)
+    expect(result.state).toBe('success')
+    expect(result.iterations).toBe(3)
+  })
+
+  it('exposes evaluated count via the fetchRuns callback (caller-managed)', async () => {
+    let capturedSize = 0
+    const fetchRuns = async () => {
+      const runs = [make({ conclusion: 'success' })]
+      capturedSize = runs.length
+      return runs
+    }
+    const result = await pollUntilComplete(fetchRuns, opts)
+    expect(result.state).toBe('success')
+    expect(capturedSize).toBe(1)
+  })
+})
