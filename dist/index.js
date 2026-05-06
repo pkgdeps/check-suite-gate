@@ -24159,7 +24159,9 @@ var run = async () => {
     core.setOutput("polled-iterations", "0");
     return;
   }
-  if (action === "opened" || action === "synchronize" || action === "reopened") {
+  const isPollingMode = action === "auto_merge_enabled" || (action === "opened" || action === "synchronize" || action === "reopened") && pr.auto_merge !== null;
+  const isPendingMode = !isPollingMode && (action === "opened" || action === "synchronize" || action === "reopened");
+  if (isPendingMode) {
     await writeCommitStatus(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
@@ -24176,7 +24178,7 @@ var run = async () => {
     core.setOutput("polled-iterations", "0");
     return;
   }
-  if (action !== "auto_merge_enabled") {
+  if (!isPollingMode) {
     core.warning(`Skipping unsupported pull_request action: "${action}"`);
     return;
   }

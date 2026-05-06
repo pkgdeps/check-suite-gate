@@ -36,7 +36,11 @@ const run = async (): Promise<void> => {
 
   const action = (ctx.payload as { action?: string }).action ?? ''
   const pr = ctx.payload.pull_request as
-    | { number: number; head: { sha: string } }
+    | {
+        number: number
+        head: { sha: string }
+        auto_merge: { enabled_by: { login: string } } | null
+      }
     | undefined
   if (pr === undefined) {
     core.setFailed('pull_request payload is missing')
@@ -100,13 +104,24 @@ const run = async (): Promise<void> => {
     return
   }
 
-  // Pending mode: PR was opened / synchronized / reopened.
-  // Write a pending status with an action-item description and exit.
-  if (
-    action === 'opened' ||
-    action === 'synchronize' ||
-    action === 'reopened'
-  ) {
+  // Decide which mode to run.
+  // Polling mode: maintainer pressed "Enable Auto Merge" (auto_merge_enabled
+  // activity), OR Auto Merge is already enabled and the PR was just synced
+  // / reopened / opened (e.g. a Renovate-style auto-merge-on-creation PR).
+  // Pending mode: PR is open but Auto Merge is not yet enabled. We just
+  // mark the required check pending so the merge stays blocked.
+  const isPollingMode =
+    action === 'auto_merge_enabled' ||
+    ((action === 'opened' ||
+      action === 'synchronize' ||
+      action === 'reopened') &&
+      pr.auto_merge !== null)
+
+  const isPendingMode =
+    !isPollingMode &&
+    (action === 'opened' || action === 'synchronize' || action === 'reopened')
+
+  if (isPendingMode) {
     await writeCommitStatus(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
@@ -124,8 +139,7 @@ const run = async (): Promise<void> => {
     return
   }
 
-  // Polling mode: maintainer pressed "Enable Auto Merge".
-  if (action !== 'auto_merge_enabled') {
+  if (!isPollingMode) {
     core.warning(`Skipping unsupported pull_request action: "${action}"`)
     return
   }

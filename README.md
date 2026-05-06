@@ -30,6 +30,8 @@ sequenceDiagram
 3. The gate flips the aggregated status to `success` (all checks green) or `failure` (any check red).
 4. GitHub's native auto-merge takes care of the actual merge once everything is green.
 
+**If Auto Merge is already enabled when you push a new commit**: the action treats the synchronize event the same as `auto_merge_enabled` — it polls until all checks complete, then writes the aggregated status. So you don't need to disable→enable Auto Merge after every push to retrigger the gate.
+
 ### Fork PRs
 
 GitHub issues a read-only `GITHUB_TOKEN` for fork PRs by default, so writing a commit status would fail. The action detects fork PRs (by comparing head and base repository IDs) and behaves according to the `fork-policy` input:
