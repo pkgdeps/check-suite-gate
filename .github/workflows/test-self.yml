@@ -1,8 +1,8 @@
 name: test-self
 
 on:
-  check_suite:
-    types: [completed]
+  pull_request:
+    types: [opened, synchronize, reopened, auto_merge_enabled]
 
 permissions:
   statuses: write
@@ -11,12 +11,13 @@ permissions:
   actions: read
 
 concurrency:
-  group: gate-${{ github.event.check_suite.head_sha }}
-  cancel-in-progress: false
+  group: automerge-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  aggregate:
+  gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,5 +30,5 @@ jobs:
       - name: Self-host gate
         uses: ./
         with:
-          context: 'check-suite-gate/self-test'
-          ignore-checks: 'check-suite-gate/self-test'
+          context: 'automerge-gate/self-test'
+          ignore-checks: 'automerge-gate/self-test'
