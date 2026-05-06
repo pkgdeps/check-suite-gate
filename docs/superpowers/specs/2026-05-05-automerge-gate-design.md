@@ -101,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: pkgdeps/automerge-gate@v1
+      - uses: pkgdeps/automerge-gate@v1.0.0
         with:
           context: 'automerge-gate/all-passed'
           # オプション。 ignore-apps / ignore-checks はカンマ区切りでも改行区切りでも書ける
@@ -304,9 +304,11 @@ permissions:
 
 ## 配布 / リリースフロー
 
-v1 と同じ。 `actions/typescript-action` template の `script/release` で major moving tag (`v1`) を運用、 `dist/index.js` を git に commit、 PR の CI で `npm run build` 後 `git diff --exit-code dist/` で整合性確認。
+**moving tag は持たず、 immutable な semver tag (`v1.0.0`, `v1.1.0`, ...) のみで配布する**。 `script/release` (template が moving tag 更新のために用意していた helper) は廃止。 release は GitHub UI で「Create a new release」 → tag `v1.0.0` を新規作成するだけ。 GitHub の Immutable Releases (2026-02 public preview) を有効化することで tag / asset の事後改変も防げる。
 
-詳細は v1 spec の「配布 / リリースフロー」 セクションを参照。 v2 でも同じ。
+利用者は `uses: pkgdeps/automerge-gate@v1.0.0` で固定 version に pin し、 Renovate / Dependabot が新 version の PR を作る形で update する想定。
+
+`dist/index.js` は v1 と同様に git に commit、 PR の CI で `npm run build` 後 `git diff --exit-code dist/` で整合性確認する。
 
 ## テスト戦略
 

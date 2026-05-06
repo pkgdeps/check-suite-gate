@@ -87,7 +87,7 @@ jobs:
     # longest CI duration in your repository.
     timeout-minutes: 10
     steps:
-      - uses: pkgdeps/automerge-gate@v1
+      - uses: pkgdeps/automerge-gate@v1.0.0
         with:
           context: 'automerge-gate/all-passed'
           ignore-apps: |
@@ -146,6 +146,10 @@ There is **no `timeout-seconds` input on purpose** — timeout is delegated enti
 ## v1 (archived)
 
 The previous version of this Action under the name `check-suite-gate` is preserved in the git history of this repository. The post-mortem on why it didn't work (Japanese) is in [`docs/lessons/2026-05-05-check-suite-recursion-finding.md`](docs/lessons/2026-05-05-check-suite-recursion-finding.md). The v1 spec and plan are also kept under `docs/superpowers/specs/` and `docs/superpowers/plans/` for reference.
+
+## Versioning
+
+Releases are published as **immutable semver tags** (`v1.0.0`, `v1.1.0`, ...). There is intentionally no moving major tag (`v1`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
 
 ## License
 
