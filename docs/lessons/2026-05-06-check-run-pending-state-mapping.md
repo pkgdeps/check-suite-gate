@@ -108,3 +108,4 @@ stale is not a member of ["success", "failure", "neutral", "cancelled", "timed_o
 - [docs/lessons/2026-05-05-check-suite-recursion-finding.md](./2026-05-05-check-suite-recursion-finding.md) — v1 設計の前提崩れ
 - PR [#15](https://github.com/pkgdeps/automerge-gate/pull/15) — v2 移行 (commit status → check_run)
 - [src/check-run.ts](../../src/check-run.ts) — `stateToCheckRunFields` 実装
+
