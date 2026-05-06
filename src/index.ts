@@ -16,6 +16,35 @@ import { buildTargetUrl, writeCommitStatus } from './status.js'
 
 const PENDING_DESCRIPTION = 'Awaiting Auto Merge enable'
 
+// pull_request activity types that may bring a new HEAD SHA to the PR.
+// The gate re-evaluates the SHA on these. Triggers pending mode by default,
+// or polling mode when Auto Merge is already enabled.
+const HEAD_SHA_ACTIONS = ['opened', 'synchronize', 'reopened'] as const
+type HeadShaAction = (typeof HEAD_SHA_ACTIONS)[number]
+const isHeadShaAction = (a: string): a is HeadShaAction =>
+  (HEAD_SHA_ACTIONS as readonly string[]).includes(a)
+
+// Mutually exclusive modes the action can run in for a given pull_request event.
+//   polling — poll the Checks API and write the aggregated status when done.
+//   pending — write a pending status with "Awaiting Auto Merge enable" and exit.
+//   skip    — do nothing for unsupported activity types.
+type ActionMode = 'polling' | 'pending' | 'skip'
+
+type DetermineModeInput = {
+  action: string
+  isHeadShaEvent: boolean
+  isAutoMergeAlreadyEnabled: boolean
+}
+
+const determineMode = (input: DetermineModeInput): ActionMode => {
+  const { action, isHeadShaEvent, isAutoMergeAlreadyEnabled } = input
+  if (action === 'auto_merge_enabled') return 'polling'
+  if (isHeadShaEvent) {
+    return isAutoMergeAlreadyEnabled ? 'polling' : 'pending'
+  }
+  return 'skip'
+}
+
 const run = async (): Promise<void> => {
   const inputs = parseInputs({
     context: core.getInput('context'),
@@ -36,7 +65,11 @@ const run = async (): Promise<void> => {
 
   const action = (ctx.payload as { action?: string }).action ?? ''
   const pr = ctx.payload.pull_request as
-    | { number: number; head: { sha: string } }
+    | {
+        number: number
+        head: { sha: string }
+        auto_merge: { enabled_by: { login: string } } | null
+      }
     | undefined
   if (pr === undefined) {
     core.setFailed('pull_request payload is missing')
@@ -100,13 +133,24 @@ const run = async (): Promise<void> => {
     return
   }
 
-  // Pending mode: PR was opened / synchronized / reopened.
-  // Write a pending status with an action-item description and exit.
-  if (
-    action === 'opened' ||
-    action === 'synchronize' ||
-    action === 'reopened'
-  ) {
+  // Decide which mode to run.
+  // Polling mode: maintainer pressed "Enable Auto Merge" (auto_merge_enabled
+  // activity), OR Auto Merge is already enabled and a new SHA landed on
+  // the PR (e.g. a Renovate-style auto-merge-on-creation PR).
+  // Pending mode: a new SHA landed but Auto Merge is not yet enabled. We
+  // just mark the required check pending so the merge stays blocked.
+  const mode: ActionMode = determineMode({
+    action,
+    isHeadShaEvent: isHeadShaAction(action),
+    isAutoMergeAlreadyEnabled: pr.auto_merge !== null
+  })
+
+  if (mode === 'skip') {
+    core.warning(`Skipping unsupported pull_request action: "${action}"`)
+    return
+  }
+
+  if (mode === 'pending') {
     await writeCommitStatus(octokit, {
       owner: ctx.repo.owner,
       repo: ctx.repo.repo,
@@ -124,11 +168,7 @@ const run = async (): Promise<void> => {
     return
   }
 
-  // Polling mode: maintainer pressed "Enable Auto Merge".
-  if (action !== 'auto_merge_enabled') {
-    core.warning(`Skipping unsupported pull_request action: "${action}"`)
-    return
-  }
+  // mode === 'polling'
 
   let lastTotal = 0
   let lastEvaluated = 0
