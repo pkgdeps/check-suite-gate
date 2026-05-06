@@ -24165,15 +24165,21 @@ var determineMode = (input) => {
     isApproved
   } = input;
   if (eventName === "pull_request_review") {
-    if (action === "submitted" && reviewState === "approved") {
+    if (action !== "submitted" || reviewState !== "approved") {
       return {
-        mode: "polling",
-        reason: "reviewer Approved (interpreted as merge intent \u2014 pull_request_review.submitted with state=approved)"
+        mode: "skip",
+        reason: `pull_request_review ignored (action=${action}, state=${reviewState ?? "null"})`
+      };
+    }
+    if (!isApproved) {
+      return {
+        mode: "skip",
+        reason: "pull_request_review.submitted with state=approved, but no reviewer with write access has an active Approve \u2014 treating as drive-by review"
       };
     }
     return {
-      mode: "skip",
-      reason: `pull_request_review ignored (action=${action}, state=${reviewState ?? "null"})`
+      mode: "polling",
+      reason: "reviewer Approved with write access (interpreted as merge intent \u2014 pull_request_review.submitted with state=approved)"
     };
   }
   if (action === "auto_merge_enabled") {
@@ -24207,7 +24213,31 @@ var determineMode = (input) => {
 };
 
 // src/review-status.ts
-var AUTHORIZED_ASSOCIATIONS = /* @__PURE__ */ new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+var WRITE_PERMISSIONS = /* @__PURE__ */ new Set(["admin", "write"]);
+var WRITE_ROLE_NAMES = /* @__PURE__ */ new Set(["admin", "maintain", "write"]);
+var hasWritePermission = async (octokit, owner, repo, username, cache, retryOptions) => {
+  const cached = cache.get(username);
+  if (cached !== void 0) return cached;
+  try {
+    const result = await withRetry(
+      () => octokit.rest.repos.getCollaboratorPermissionLevel({
+        owner,
+        repo,
+        username
+      }),
+      retryOptions
+    );
+    const ok = WRITE_PERMISSIONS.has(result.data.permission) || result.data.role_name !== void 0 && WRITE_ROLE_NAMES.has(result.data.role_name);
+    cache.set(username, ok);
+    return ok;
+  } catch (err) {
+    if (err.status === 404) {
+      cache.set(username, false);
+      return false;
+    }
+    throw err;
+  }
+};
 var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = {
   retries: 3,
   baseDelayMs: 500
@@ -24222,12 +24252,23 @@ var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = 
   const latestPerUser = /* @__PURE__ */ new Map();
   for (const r of reviews) {
     if (r.state === "COMMENTED") continue;
-    if (!AUTHORIZED_ASSOCIATIONS.has(r.author_association)) continue;
-    const login = r.user?.login ?? "<unknown>";
+    const login = r.user?.login;
+    if (login === void 0 || login === null) continue;
     latestPerUser.set(login, r);
   }
-  for (const r of latestPerUser.values()) {
-    if (r.state === "APPROVED") return true;
+  const permCache = /* @__PURE__ */ new Map();
+  for (const [login, r] of latestPerUser) {
+    if (r.state !== "APPROVED") continue;
+    if (await hasWritePermission(
+      octokit,
+      owner,
+      repo,
+      login,
+      permCache,
+      retryOptions
+    )) {
+      return true;
+    }
   }
   return false;
 };
@@ -24321,12 +24362,8 @@ var run = async () => {
   });
   const octokit = github.getOctokit(inputs.token);
   const isHeadShaEvent = isHeadShaAction(action);
-  const isApproved = isHeadShaEvent && pr.auto_merge === null ? await hasActiveApproval(
-    octokit,
-    ctx.repo.owner,
-    ctx.repo.repo,
-    pr.number
-  ) : false;
+  const needsApprovalLookup = isHeadShaEvent && pr.auto_merge === null || ctx.eventName === "pull_request_review";
+  const isApproved = needsApprovalLookup ? await hasActiveApproval(octokit, ctx.repo.owner, ctx.repo.repo, pr.number) : false;
   const { mode, reason } = determineMode({
     eventName: ctx.eventName,
     action,

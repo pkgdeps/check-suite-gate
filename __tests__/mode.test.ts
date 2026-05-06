@@ -90,16 +90,33 @@ describe('determineMode', () => {
   })
 
   describe('pull_request_review event', () => {
-    it('submitted + approved → polling (Approve = merge intent)', () => {
+    it('submitted + approved + isApproved=true → polling', () => {
       const result = determineMode(
         input({
           eventName: 'pull_request_review',
           action: 'submitted',
-          reviewState: 'approved'
+          reviewState: 'approved',
+          isApproved: true
         })
       )
       expect(result.mode).toBe('polling')
-      expect(result.reason).toMatch(/reviewer Approved/)
+      expect(result.reason).toMatch(/reviewer Approved with write access/)
+    })
+
+    it('submitted + approved + isApproved=false → skip (drive-by Approve)', () => {
+      // Anyone can submit an Approve on a public PR; if hasActiveApproval
+      // says no write-permission reviewer's Approve is active, treat the
+      // event as a drive-by and don't fire polling.
+      const result = determineMode(
+        input({
+          eventName: 'pull_request_review',
+          action: 'submitted',
+          reviewState: 'approved',
+          isApproved: false
+        })
+      )
+      expect(result.mode).toBe('skip')
+      expect(result.reason).toMatch(/drive-by review/)
     })
 
     it('submitted + changes_requested → skip', () => {
@@ -107,18 +124,20 @@ describe('determineMode', () => {
         input({
           eventName: 'pull_request_review',
           action: 'submitted',
-          reviewState: 'changes_requested'
+          reviewState: 'changes_requested',
+          isApproved: false
         })
       )
       expect(result.mode).toBe('skip')
     })
 
-    it('submitted + commented → skip (a comment-only review is not merge intent)', () => {
+    it('submitted + commented → skip', () => {
       const result = determineMode(
         input({
           eventName: 'pull_request_review',
           action: 'submitted',
-          reviewState: 'commented'
+          reviewState: 'commented',
+          isApproved: false
         })
       )
       expect(result.mode).toBe('skip')
@@ -129,7 +148,8 @@ describe('determineMode', () => {
         input({
           eventName: 'pull_request_review',
           action: 'dismissed',
-          reviewState: 'approved'
+          reviewState: 'approved',
+          isApproved: true
         })
       )
       expect(result.mode).toBe('skip')

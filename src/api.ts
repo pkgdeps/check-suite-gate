@@ -115,6 +115,18 @@ export type OctokitLike = {
         per_page?: number
       }) => Promise<{ data: ReviewListItem[] }>
     }
+    repos: {
+      getCollaboratorPermissionLevel: (params: {
+        owner: string
+        repo: string
+        username: string
+      }) => Promise<{
+        data: {
+          permission: 'admin' | 'write' | 'read' | 'none' | string
+          role_name?: string
+        }
+      }>
+    }
   }
   paginate: <T>(
     fn: (params: Record<string, unknown>) => Promise<{ data: T[] }>,

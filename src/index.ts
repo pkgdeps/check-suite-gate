@@ -165,20 +165,27 @@ const run = async (): Promise<void> => {
 
   const octokit = github.getOctokit(inputs.token) as unknown as OctokitLike
 
-  // Approve is a sticky merge-intent signal: once a reviewer Approves,
-  // every subsequent push should re-evaluate (= polling), not drop back
-  // to pending. Query review state on HEAD SHA events to see if any
-  // approval is still active. Other event types don't need this lookup.
+  // Approve is a sticky merge-intent signal: once a write-permission
+  // reviewer Approves, every subsequent push should re-evaluate
+  // (= polling), not drop back to pending. We query review state to
+  // see if any Approve is still active. Two cases need this lookup:
+  //
+  //   - HEAD SHA event with auto-merge off — to detect a previously
+  //     standing Approve and stay polling on new pushes.
+  //   - pull_request_review.submitted — to verify the reviewer has
+  //     write access. The webhook payload's author_association is
+  //     not a reliable proxy: a read-only COLLABORATOR has the same
+  //     association as a maintainer, so we re-check via API.
+  //
+  // auto_merge_enabled doesn't need this lookup (auto-merge is a
+  // sufficient merge-intent signal on its own).
   const isHeadShaEvent = isHeadShaAction(action)
-  const isApproved =
-    isHeadShaEvent && pr.auto_merge === null
-      ? await hasActiveApproval(
-          octokit,
-          ctx.repo.owner,
-          ctx.repo.repo,
-          pr.number
-        )
-      : false
+  const needsApprovalLookup =
+    (isHeadShaEvent && pr.auto_merge === null) ||
+    ctx.eventName === 'pull_request_review'
+  const isApproved = needsApprovalLookup
+    ? await hasActiveApproval(octokit, ctx.repo.owner, ctx.repo.repo, pr.number)
+    : false
 
   const { mode, reason } = determineMode({
     eventName: ctx.eventName,

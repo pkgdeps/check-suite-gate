@@ -134,16 +134,28 @@ export const determineMode = (
     isApproved
   } = input
   if (eventName === 'pull_request_review') {
-    if (action === 'submitted' && reviewState === 'approved') {
+    if (action !== 'submitted' || reviewState !== 'approved') {
       return {
-        mode: 'polling',
+        mode: 'skip',
+        reason: `pull_request_review ignored (action=${action}, state=${reviewState ?? 'null'})`
+      }
+    }
+    // Anyone can submit an Approve on a public PR. Confirm via the API
+    // that at least one active Approve comes from a reviewer with write
+    // access — otherwise a drive-by Approve from a read-only
+    // collaborator (or an external contributor) would flip the gate
+    // green and let auto-merge fire.
+    if (!isApproved) {
+      return {
+        mode: 'skip',
         reason:
-          'reviewer Approved (interpreted as merge intent — pull_request_review.submitted with state=approved)'
+          'pull_request_review.submitted with state=approved, but no reviewer with write access has an active Approve — treating as drive-by review'
       }
     }
     return {
-      mode: 'skip',
-      reason: `pull_request_review ignored (action=${action}, state=${reviewState ?? 'null'})`
+      mode: 'polling',
+      reason:
+        'reviewer Approved with write access (interpreted as merge intent — pull_request_review.submitted with state=approved)'
     }
   }
   if (action === 'auto_merge_enabled') {
