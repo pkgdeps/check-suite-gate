@@ -99,16 +99,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: pkgdeps/automerge-gate@v1.0.0
-        with:
-          context: 'automerge-gate/all-passed'
-          ignore-apps: |
-            dependabot
-            renovate
-          ignore-checks: |
-            optional-*
-            docs-only
-            ci / lint
 ```
+
+`ignore-apps` / `ignore-checks` / `fork-policy` などの optional inputs は [Inputs](#inputs) を参照してください。
 
 ### 2. Register the required check + allow auto-merge
 
