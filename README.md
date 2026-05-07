@@ -268,8 +268,8 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 ## Limitations
 
 - **Merge queue (`merge_group`)** is not supported.
-- **Dead runner / job timeout**: if the runner is killed mid-polling (job hits `timeout-minutes`, dies physically, etc.), the gate job's check_run becomes `failure` (or `cancelled`), so the required check stays red and merge stays blocked. The maintainer can disable then re-enable Auto Merge to re-trigger.
-- **CIs that only write legacy commit statuses**: GitHub has two ways for CIs to report results — the modern check_run / check_suite API (used by GitHub Actions, Cloudflare Pages, Codecov, etc.) and the legacy commit-status API (used by some older or self-hosted CIs like Atlantis or some Jenkins setups). The action polls the check_run / check_suite side, so a CI that only writes legacy commit statuses isn't aggregated. If you depend on such a CI, register it as a separate required check in your ruleset alongside `automerge-gate/all-passed`.
+- **Dead runner / job timeout**: the polling job can be killed before it finishes (its `timeout-minutes` fires, the runner dies, and so on). The gate job's check_run then ends as `failure` or `cancelled`. The required check stays red and merge stays blocked. To retry, disable Auto Merge and enable it again.
+- **CIs that only write legacy commit statuses**: GitHub has two CI reporting APIs. Modern CIs (GitHub Actions, Cloudflare Pages, Codecov) use the check_run / check_suite API. Some older or self-hosted CIs (Atlantis, some Jenkins setups) only use the legacy commit-status API. This action only reads the check_run / check_suite side, so a CI that only writes legacy commit statuses is not aggregated. If you depend on such a CI, add it as a separate required check in your ruleset alongside `automerge-gate/all-passed`.
 
 ## Versioning
 
