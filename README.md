@@ -90,10 +90,10 @@ Note: GitHub rulesets only support AND across required checks (no OR / condition
 
 automerge-gate ships two workflow configurations. Pick one based on whether your repository accepts external fork PRs:
 
-- **Configuration A: private (cost-optimized)** — internal-only repos that do not receive external fork PRs. The action writes the aggregated verdict as a commit status via the legacy Commit Status API. PRs without merge intent skip polling entirely so runner minutes are saved.
-- **Configuration B: public (fork-aware)** — repos that accept fork PRs. `GITHUB_TOKEN` is read-only on fork PRs, so the gate signal is the gate job's own check_run conclusion. The job runs on every triggering event and always polls.
+- **Private mode (cost-optimized)** — internal-only repos that do not receive external fork PRs. The action writes the aggregated verdict as a commit status via the legacy Commit Status API. PRs without merge intent skip polling entirely so runner minutes are saved.
+- **Public mode (fork-aware)** — repos that accept fork PRs. `GITHUB_TOKEN` is read-only on fork PRs, so the gate signal is the gate job's own check_run conclusion. The job runs on every triggering event and always polls.
 
-### Configuration A: private (cost-optimized)
+### Private mode configuration
 
 Create `.github/workflows/automerge-gate.yaml`:
 
@@ -133,7 +133,7 @@ The `pull_request_review.state == 'approved'` clause filters out non-Approve rev
 
 When a `synchronize`, `opened`, or `reopened` event fires without an active merge intent (no Auto Merge enabled, no sticky write-permission Approve), the action exits cleanly without writing a status. The required check stays at GitHub's `Expected` state and merge stays blocked, but no polling burns runner minutes.
 
-### Configuration B: public (fork-aware)
+### Public mode configuration
 
 Create `.github/workflows/automerge-gate.yaml`:
 
@@ -165,7 +165,7 @@ jobs:
 
 In public mode, the job's `name:` *is* the required-check context — GitHub Actions creates a check_run with that name when the job starts, and its conclusion is what the required check evaluates. The action polls every triggering event (no skip path) because read-only token can't write a "waiting" signal anyway, and a skipped job would let an unfinished PR slip through merge.
 
-### Configuration differences
+### Mode differences
 
 | | private | public |
 |---|---|---|
