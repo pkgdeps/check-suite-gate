@@ -43,7 +43,7 @@ sequenceDiagram
 ```
 
 1. A PR is opened. There's no merge intent yet, so the action skips without writing a status. The required check stays at GitHub's default `Expected — Waiting for status to be reported`, which keeps the PR blocked.
-2. The maintainer clicks **Enable Auto Merge**, *or* a reviewer with write access submits an **Approve** review. The action enters polling mode and watches every other check on the PR.
+2. The maintainer clicks **Enable Auto Merge**, _or_ a reviewer with write access submits an **Approve** review. The action enters polling mode and watches every other check on the PR.
 3. The action polls every other check on the PR, applying any `ignore-apps` / `ignore-checks` filters.
 4. After polling, the action writes the aggregated verdict (`state: success` or `failure`) as a commit status on the head SHA, keyed by the configured `context`. GitHub's required-check evaluation looks up the same `(SHA, context)` pair, so the verdict turns the required check green or red immediately.
 5. GitHub's native auto-merge fires when the required check turns green.
@@ -77,7 +77,7 @@ sequenceDiagram
     end
 ```
 
-1. The PR is opened (or pushed to). The workflow always triggers. GitHub Actions auto-creates a check_run named after the gate job (e.g. `automerge-gate/all-passed`) — that check_run *is* the required-check signal.
+1. The PR is opened (or pushed to). The workflow always triggers. GitHub Actions auto-creates a check_run named after the gate job (e.g. `automerge-gate/all-passed`) — that check_run is the required-check signal.
 2. The action polls every other check on the PR, applying any `ignore-apps` / `ignore-checks` filters.
 3. After polling, the action exits 0 (success) or non-zero (failure). The job's check_run conclusion follows the exit code, and GitHub treats it as the required check's verdict.
 4. GitHub's native auto-merge fires when the required check turns green.
@@ -88,14 +88,28 @@ Note: GitHub rulesets only support AND across required checks (no OR / condition
 
 ## Usage
 
-automerge-gate ships two workflow configurations. Pick one based on whether your repository accepts external fork PRs:
+Setup is five steps: pick a mode, add the workflow file, register the required check in the ruleset, allow auto-merge in repository settings, then click Enable Auto Merge on a PR. Run them in order — Step 5 won't show the button until Step 4 is done, and the required check from Step 3 only gates merges once a workflow run reports it.
 
-- **Configuration A: private (cost-optimized)** — internal-only repos that do not receive external fork PRs. The action writes the aggregated verdict as a commit status via the legacy Commit Status API. PRs without merge intent skip polling entirely so runner minutes are saved.
-- **Configuration B: public (fork-aware)** — repos that accept fork PRs. `GITHUB_TOKEN` is read-only on fork PRs, so the gate signal is the gate job's own check_run conclusion. The job runs on every triggering event and always polls.
+### Step 1: Pick a mode
 
-### Configuration A: private (cost-optimized)
+Choose based on whether your repository accepts external fork PRs.
 
-Create `.github/workflows/automerge-gate.yaml`:
+- Private mode (cost-optimized) — internal-only repos that do not receive external fork PRs. The action writes the aggregated verdict as a commit status via the legacy Commit Status API. PRs without merge intent skip polling entirely so runner minutes are saved.
+- Public mode (fork-aware) — repos that accept fork PRs. `GITHUB_TOKEN` is read-only on fork PRs, so the gate signal is the gate job's own check_run conclusion. The job runs on every triggering event and always polls.
+
+|                               | private                            | public                 |
+| ----------------------------- | ---------------------------------- | ---------------------- |
+| `pull_request_review` trigger | yes                                | no                     |
+| Job `name:`                   | (default)                          | matches required check |
+| Permissions                   | `statuses: write` + `checks: read` | `checks: read`         |
+| API write of aggregate        | yes (commit status)                | no (job exit code)     |
+| Skip on no merge intent       | yes (saves runner minutes)         | no (always polls)      |
+
+### Step 2: Add the workflow file
+
+Create `.github/workflows/automerge-gate.yaml` using the YAML for the mode picked in Step 1.
+
+#### Private mode
 
 ```yaml
 name: automerge-gate
@@ -113,8 +127,8 @@ concurrency:
 jobs:
   gate:
     if: >-
-      github.event_name != 'pull_request_review'
-      || github.event.review.state == 'approved'
+      github.event_name != 'pull_request_review' ||
+      github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -133,9 +147,7 @@ The `pull_request_review.state == 'approved'` clause filters out non-Approve rev
 
 When a `synchronize`, `opened`, or `reopened` event fires without an active merge intent (no Auto Merge enabled, no sticky write-permission Approve), the action exits cleanly without writing a status. The required check stays at GitHub's `Expected` state and merge stays blocked, but no polling burns runner minutes.
 
-### Configuration B: public (fork-aware)
-
-Create `.github/workflows/automerge-gate.yaml`:
+#### Public mode
 
 ```yaml
 name: automerge-gate
@@ -150,7 +162,7 @@ concurrency:
 
 jobs:
   gate:
-    name: automerge-gate/all-passed   # must match the required check in your ruleset
+    name: automerge-gate/all-passed # must match the required check in your ruleset
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -163,30 +175,22 @@ jobs:
           gate-mode: 'public'
 ```
 
-In public mode, the job's `name:` *is* the required-check context — GitHub Actions creates a check_run with that name when the job starts, and its conclusion is what the required check evaluates. The action polls every triggering event (no skip path) because read-only token can't write a "waiting" signal anyway, and a skipped job would let an unfinished PR slip through merge.
+In public mode, the job's `name:` _is_ the required-check context — GitHub Actions creates a check_run with that name when the job starts, and its conclusion is what the required check evaluates. The action polls every triggering event (no skip path) because the read-only token can't write a "waiting" signal anyway, and a skipped job would let an unfinished PR slip through merge.
 
-### Configuration differences
+### Step 3: Register the required check
 
-| | private | public |
-|---|---|---|
-| `pull_request_review` trigger | yes | no |
-| Job `name:` | (default) | matches required check |
-| Permissions | `statuses: write` + `checks: read` | `checks: read` |
-| API write of aggregate | yes (commit status) | no (JOB exit code) |
-| Skip on no merge intent | yes (saves runner minutes) | no (always polls) |
+Open Settings → Rules → Rulesets (or Branches → Branch protection) and add a rule that requires the check `automerge-gate/all-passed`.
 
-### Register the required check + allow auto-merge
-
-In repository **Settings**:
-
-- **Rules → Rulesets** (or **Branches → Branch protection**): add a rule that requires the check `automerge-gate/all-passed`. Type the context name directly — rulesets accept it without needing it to be seeded first.
-- **General → Pull Requests**: tick **Allow auto-merge**. Without this the *Enable Auto Merge* button doesn't show up on PRs.
+> [!WARNING]
+> The autocomplete only lists checks that have already run on this repo, so the dropdown is empty on first setup. Type `automerge-gate/all-passed` by hand — both rulesets and branch protection accept any name. Once the gate runs on a PR, it shows up in the dropdown.
 
 This single required check is now the only thing standing between a PR and merge. Any check that lands on the PR — Renovate, Codecov, your own workflows — gets aggregated into it.
 
-### Press Enable Auto Merge
+### Step 4: Allow auto-merge
 
-On any PR you want to ship:
+Open Settings → General → Pull Requests and tick **Allow auto-merge**. Without this the _Enable Auto Merge_ button doesn't show up on PRs, so Step 5 has nothing to click.
+
+### Step 5: Enable Auto Merge on a PR
 
 1. Get the PR ready (review, fix, etc.).
 2. Click **Enable Auto Merge**.
@@ -198,14 +202,14 @@ On any PR you want to ship:
 
 ## Inputs
 
-| name | required | default | description |
-|---|---|---|---|
-| `gate-mode` | **yes** | (none) | `private` / `public`. `private` = action writes the aggregated commit status via the legacy Commit Status API (token needs `statuses: write` + `checks: read`). `public` = gate signal is the JOB's own check_run conclusion; the job's `name:` must match the required-check context (token can be `checks: read`). |
-| `context` | no | `automerge-gate/all-passed` | Aggregated commit status context. **`gate-mode: private` only** — must match the required check in your ruleset. Ignored when `gate-mode: public` (the job name is the signal). |
-| `poll-interval-seconds` | no | `30` | How often to re-fetch check status |
-| `ignore-apps` | no | (empty) | GitHub App slugs to exclude. Comma-separated **or newline-separated** |
-| `ignore-checks` | no | (empty) | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated** |
-| `token` | no | `${{ github.token }}` | GitHub token used to read checks and (when permitted) write the aggregated commit status |
+| name                    | required | default                     | description                                                                                                                                                                                                                                                                                                          |
+| ----------------------- | -------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gate-mode`             | **yes**  | (none)                      | `private` / `public`. `private` = action writes the aggregated commit status via the legacy Commit Status API (token needs `statuses: write` + `checks: read`). `public` = gate signal is the JOB's own check_run conclusion; the job's `name:` must match the required-check context (token can be `checks: read`). |
+| `context`               | no       | `automerge-gate/all-passed` | Aggregated commit status context. **`gate-mode: private` only** — must match the required check in your ruleset. Ignored when `gate-mode: public` (the job name is the signal).                                                                                                                                      |
+| `poll-interval-seconds` | no       | `30`                        | How often to re-fetch check status                                                                                                                                                                                                                                                                                   |
+| `ignore-apps`           | no       | (empty)                     | GitHub App slugs to exclude. Comma-separated **or newline-separated**                                                                                                                                                                                                                                                |
+| `ignore-checks`         | no       | (empty)                     | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated**                                                                                                                                                                                                                        |
+| `token`                 | no       | `${{ github.token }}`       | GitHub token used to read checks and (when permitted) write the aggregated commit status                                                                                                                                                                                                                             |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
 
@@ -221,23 +225,23 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 **Exclude specific GitHub Apps from aggregation:**
 
 ```yaml
-      - uses: pkgdeps/automerge-gate@v4.0.0
-        with:
-          gate-mode: 'private'
-          ignore-apps: |
-            dependabot
-            renovate
+- uses: pkgdeps/automerge-gate@v4.0.0
+  with:
+    gate-mode: 'private'
+    ignore-apps: |
+      dependabot
+      renovate
 ```
 
 **Exclude check_runs by glob:**
 
 ```yaml
-      - uses: pkgdeps/automerge-gate@v4.0.0
-        with:
-          gate-mode: 'private'
-          ignore-checks: |
-            optional-*
-            docs-only
+- uses: pkgdeps/automerge-gate@v4.0.0
+  with:
+    gate-mode: 'private'
+    ignore-checks: |
+      optional-*
+      docs-only
 ```
 
 `ignore-apps` / `ignore-checks` accept either comma-separated values (`a,b,c`) or one entry per line via the YAML `|` block scalar.
@@ -245,21 +249,21 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 **Tune polling interval for fast CI:**
 
 ```yaml
-      - uses: pkgdeps/automerge-gate@v4.0.0
-        with:
-          gate-mode: 'private'
-          poll-interval-seconds: '10'
+- uses: pkgdeps/automerge-gate@v4.0.0
+  with:
+    gate-mode: 'private'
+    poll-interval-seconds: '10'
 ```
 
 ## Outputs
 
-| name | description |
-|---|---|
-| `state` | `success` / `failure` / `skipped` |
-| `total-checks` | Number of check_runs observed before filtering |
-| `evaluated-checks` | Number of check_runs after filters |
-| `completed-checks` | Number of completed check_runs after filters |
-| `polled-iterations` | Number of polling iterations performed |
+| name                | description                                    |
+| ------------------- | ---------------------------------------------- |
+| `state`             | `success` / `failure` / `skipped`              |
+| `total-checks`      | Number of check_runs observed before filtering |
+| `evaluated-checks`  | Number of check_runs after filters             |
+| `completed-checks`  | Number of completed check_runs after filters   |
+| `polled-iterations` | Number of polling iterations performed         |
 
 ## Limitations
 
