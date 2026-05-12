@@ -19747,27 +19747,27 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       process.stdout.write(message + os.EOL);
     }
     exports2.info = info5;
-    function startGroup3(name) {
+    function startGroup2(name) {
       (0, command_1.issue)("group", name);
     }
-    exports2.startGroup = startGroup3;
-    function endGroup3() {
+    exports2.startGroup = startGroup2;
+    function endGroup2() {
       (0, command_1.issue)("endgroup");
     }
-    exports2.endGroup = endGroup3;
-    function group(name, fn) {
+    exports2.endGroup = endGroup2;
+    function group3(name, fn) {
       return __awaiter(this, void 0, void 0, function* () {
-        startGroup3(name);
+        startGroup2(name);
         let result;
         try {
           result = yield fn();
         } finally {
-          endGroup3();
+          endGroup2();
         }
         return result;
       });
     }
-    exports2.group = group;
+    exports2.group = group3;
     function saveState(name, value) {
       const filePath = process.env["GITHUB_STATE"] || "";
       if (filePath) {
@@ -24071,7 +24071,7 @@ var pollUntilComplete = async (fetchRuns, options) => {
     try {
       const runs = await fetchRuns();
       const result = aggregate(runs);
-      options.onIteration?.({
+      await options.onIteration?.({
         iteration: iterations,
         state: result.state,
         total: result.total,
@@ -24256,10 +24256,78 @@ var hasActiveApproval = async (octokit, owner, repo, pullNumber, retryOptions = 
   return false;
 };
 
+// src/check-results.ts
+var pad2 = (n) => n.toString().padStart(2, "0");
+var formatElapsed = (elapsedMs) => {
+  const totalSeconds = Math.floor(elapsedMs / 1e3);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${pad2(minutes)}:${pad2(seconds)}`;
+};
+var formatPollTitle = (input) => {
+  const elapsed = formatElapsed(input.elapsedMs);
+  return `[${elapsed}] Poll #${input.iteration} \u2014 ${input.state}, ${input.completed}/${input.total} completed`;
+};
+var iconFor = (run2) => {
+  const v = classify(run2);
+  if (v === "green") return "\u2705";
+  if (v === "red") return "\u274C";
+  return "\u{1F7E1}";
+};
+var labelFor = (run2) => run2.conclusion ?? run2.status;
+var formatPollBody = (runs) => {
+  const sorted = [...runs].sort((a, b) => a.name.localeCompare(b.name));
+  return sorted.map((r) => `  ${iconFor(r)} ${r.name} (${labelFor(r)})`);
+};
+var formatCheckResults = (runs) => {
+  const failed = [];
+  const passed = [];
+  let pendingCount = 0;
+  for (const run2 of runs) {
+    const v = classify(run2);
+    if (v === "green") passed.push(run2);
+    else if (v === "red") failed.push(run2);
+    else pendingCount++;
+  }
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  failed.sort(byName);
+  passed.sort(byName);
+  const logLines = [];
+  if (failed.length > 0) {
+    logLines.push(`\u274C Failed (${failed.length}):`);
+    for (const r of failed) logLines.push(`  - ${r.name} (${labelFor(r)})`);
+  }
+  if (passed.length > 0) {
+    logLines.push(`\u2705 Passed (${passed.length}):`);
+    for (const r of passed) logLines.push(`  - ${r.name} (${labelFor(r)})`);
+  }
+  const summaryLines = [];
+  if (failed.length > 0 || passed.length > 0) {
+    summaryLines.push("### Check results", "");
+  }
+  if (failed.length > 0) {
+    summaryLines.push(`#### \u274C Failed (${failed.length})`);
+    for (const r of failed)
+      summaryLines.push(`- \`${r.name}\` \u2014 ${labelFor(r)}`);
+    summaryLines.push("");
+  }
+  if (passed.length > 0) {
+    summaryLines.push(`#### \u2705 Passed (${passed.length})`);
+    for (const r of passed)
+      summaryLines.push(`- \`${r.name}\` \u2014 ${labelFor(r)}`);
+    summaryLines.push("");
+  }
+  return {
+    logLines,
+    summaryMarkdown: summaryLines.join("\n"),
+    pendingCount
+  };
+};
+
 // src/gate-private.ts
 var writeSummary = async (input) => {
   const stateEmoji = input.state === "success" ? "\u2705" : input.state === "failure" ? "\u274C" : "\u{1F7E1}";
-  await core3.summary.addHeading(`${stateEmoji} automerge-gate: ${input.state}`).addTable([
+  let s = core3.summary.addHeading(`${stateEmoji} automerge-gate: ${input.state}`).addTable([
     [
       { data: "Field", header: true },
       { data: "Value", header: true }
@@ -24270,7 +24338,11 @@ var writeSummary = async (input) => {
     ["evaluated checks (post-filter)", String(input.evaluated)],
     ["completed checks", String(input.completed)],
     ["polling iterations", String(input.iterations)]
-  ]).write();
+  ]);
+  if (input.checkResultsMarkdown) {
+    s = s.addRaw(input.checkResultsMarkdown);
+  }
+  await s.write();
 };
 var runPrivate = async (deps, inputs) => {
   const { octokit, context: context2, env } = deps;
@@ -24313,6 +24385,7 @@ var runPrivate = async (deps, inputs) => {
   let lastTotal = 0;
   let lastEvaluated = 0;
   let lastCompleted = 0;
+  let lastRuns = [];
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef);
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo);
   const fetchRuns = async () => {
@@ -24331,6 +24404,7 @@ var runPrivate = async (deps, inputs) => {
       );
       lastEvaluated = afterSelf.length;
       lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
+      lastRuns = afterSelf;
       return afterSelf;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -24338,24 +24412,28 @@ var runPrivate = async (deps, inputs) => {
       throw err;
     }
   };
-  core3.startGroup("Polling");
+  const pollStartedAt = Date.now();
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
-    onIteration: (s) => {
-      core3.info(
-        `Poll #${s.iteration}: state=${s.state}, ${s.completed}/${s.total} completed`
-      );
+    onIteration: async (s) => {
+      const title = formatPollTitle({
+        elapsedMs: Date.now() - pollStartedAt,
+        iteration: s.iteration,
+        state: s.state,
+        completed: s.completed,
+        total: s.total
+      });
+      const body = formatPollBody(lastRuns);
+      await core3.group(title, async () => {
+        for (const line of body) core3.info(line);
+      });
     }
   });
-  core3.endGroup();
-  core3.startGroup("Result");
-  core3.info(
-    `Polling finished: state=${pollResult.state}, iterations=${pollResult.iterations}`
-  );
-  core3.info(
-    `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
-  );
-  core3.endGroup();
+  const formatted = formatCheckResults(lastRuns);
+  for (const line of formatted.logLines) core3.info(line);
+  if (formatted.pendingCount > 0) {
+    core3.warning(`pending check(s) at result time: ${formatted.pendingCount}`);
+  }
   if (pollResult.state === "pending") {
     core3.warning(
       `automerge-gate: polling exited with pending state (unexpected) \u2014 iterations=${pollResult.iterations}`
@@ -24386,7 +24464,8 @@ var runPrivate = async (deps, inputs) => {
     total: lastTotal,
     evaluated: lastEvaluated,
     completed: lastCompleted,
-    iterations: pollResult.iterations
+    iterations: pollResult.iterations,
+    checkResultsMarkdown: formatted.summaryMarkdown
   });
   if (pollResult.state === "failure") {
     core3.setFailed(
@@ -24403,6 +24482,7 @@ var runPublic = async (deps, inputs) => {
   let lastTotal = 0;
   let lastEvaluated = 0;
   let lastCompleted = 0;
+  let lastRuns = [];
   const currentWorkflowPath = parseCurrentWorkflowPath(env.workflowRef);
   const lookupWorkflowPath = createWorkflowPathLookup(
     octokit,
@@ -24426,6 +24506,7 @@ var runPublic = async (deps, inputs) => {
       );
       lastEvaluated = afterSelf.length;
       lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
+      lastRuns = afterSelf;
       return afterSelf;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -24433,16 +24514,30 @@ var runPublic = async (deps, inputs) => {
       throw err;
     }
   };
-  core4.startGroup("Polling");
+  const pollStartedAt = Date.now();
   const result = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
-    onIteration: (s) => core4.info(
-      `Poll #${s.iteration}: state=${s.state}, ${s.completed}/${s.total} completed`
-    )
+    onIteration: async (s2) => {
+      const title = formatPollTitle({
+        elapsedMs: Date.now() - pollStartedAt,
+        iteration: s2.iteration,
+        state: s2.state,
+        completed: s2.completed,
+        total: s2.total
+      });
+      const body = formatPollBody(lastRuns);
+      await core4.group(title, async () => {
+        for (const line of body) core4.info(line);
+      });
+    }
   });
-  core4.endGroup();
+  const formatted = formatCheckResults(lastRuns);
+  for (const line of formatted.logLines) core4.info(line);
+  if (formatted.pendingCount > 0) {
+    core4.warning(`pending check(s) at result time: ${formatted.pendingCount}`);
+  }
   const stateEmoji = result.state === "success" ? "\u2705" : result.state === "failure" ? "\u274C" : "\u{1F7E1}";
-  await core4.summary.addHeading(`${stateEmoji} automerge-gate: ${result.state}`).addTable([
+  let s = core4.summary.addHeading(`${stateEmoji} automerge-gate: ${result.state}`).addTable([
     [
       { data: "Field", header: true },
       { data: "Value", header: true }
@@ -24453,7 +24548,11 @@ var runPublic = async (deps, inputs) => {
     ["evaluated checks (post-filter)", String(lastEvaluated)],
     ["completed checks", String(lastCompleted)],
     ["polling iterations", String(result.iterations)]
-  ]).write();
+  ]);
+  if (formatted.summaryMarkdown) {
+    s = s.addRaw(formatted.summaryMarkdown);
+  }
+  await s.write();
   core4.setOutput("state", result.state);
   core4.setOutput("total-checks", String(lastTotal));
   core4.setOutput("evaluated-checks", String(lastEvaluated));

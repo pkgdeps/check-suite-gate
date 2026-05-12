@@ -10,7 +10,7 @@ export type PollIterationSnapshot = {
 
 export type PollOptions = {
   intervalSeconds: number
-  onIteration?: (snapshot: PollIterationSnapshot) => void
+  onIteration?: (snapshot: PollIterationSnapshot) => void | Promise<void>
 }
 
 export type PollResult = {
@@ -42,7 +42,7 @@ export const pollUntilComplete = async (
       const runs = await fetchRuns()
       const result = aggregate(runs)
 
-      options.onIteration?.({
+      await options.onIteration?.({
         iteration: iterations,
         state: result.state,
         total: result.total,

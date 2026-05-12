@@ -2,12 +2,17 @@ import * as core from '@actions/core'
 import type { ParsedInputs } from './inputs.js'
 import type { RunDeps } from './run-deps.js'
 import { fetchAllCheckRuns, createWorkflowPathLookup } from './api.js'
-import { applyFilters } from './filter.js'
+import { applyFilters, type AggregatedCheckRun } from './filter.js'
 import {
   excludeOwnWorkflowRuns,
   parseCurrentWorkflowPath
 } from './self-exclusion.js'
 import { pollUntilComplete } from './polling.js'
+import {
+  formatCheckResults,
+  formatPollBody,
+  formatPollTitle
+} from './check-results.js'
 
 export const runPublic = async (
   deps: RunDeps,
@@ -19,6 +24,7 @@ export const runPublic = async (
   let lastTotal = 0
   let lastEvaluated = 0
   let lastCompleted = 0
+  let lastRuns: AggregatedCheckRun[] = []
 
   const currentWorkflowPath = parseCurrentWorkflowPath(env.workflowRef)
   const lookupWorkflowPath = createWorkflowPathLookup(
@@ -44,6 +50,7 @@ export const runPublic = async (
       )
       lastEvaluated = afterSelf.length
       lastCompleted = afterSelf.filter((r) => r.status === 'completed').length
+      lastRuns = afterSelf
       return afterSelf
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -52,15 +59,29 @@ export const runPublic = async (
     }
   }
 
-  core.startGroup('Polling')
+  const pollStartedAt = Date.now()
   const result = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
-    onIteration: (s) =>
-      core.info(
-        `Poll #${s.iteration}: state=${s.state}, ${s.completed}/${s.total} completed`
-      )
+    onIteration: async (s) => {
+      const title = formatPollTitle({
+        elapsedMs: Date.now() - pollStartedAt,
+        iteration: s.iteration,
+        state: s.state,
+        completed: s.completed,
+        total: s.total
+      })
+      const body = formatPollBody(lastRuns)
+      await core.group(title, async () => {
+        for (const line of body) core.info(line)
+      })
+    }
   })
-  core.endGroup()
+
+  const formatted = formatCheckResults(lastRuns)
+  for (const line of formatted.logLines) core.info(line)
+  if (formatted.pendingCount > 0) {
+    core.warning(`pending check(s) at result time: ${formatted.pendingCount}`)
+  }
 
   // Step summary mirrors gate-private's shape so users with mixed
   // private/public repos see consistent output in $GITHUB_STEP_SUMMARY.
@@ -68,7 +89,7 @@ export const runPublic = async (
   // what `pollUntilComplete` returned.
   const stateEmoji =
     result.state === 'success' ? '✅' : result.state === 'failure' ? '❌' : '🟡'
-  await core.summary
+  let s = core.summary
     .addHeading(`${stateEmoji} automerge-gate: ${result.state}`)
     .addTable([
       [
@@ -82,7 +103,10 @@ export const runPublic = async (
       ['completed checks', String(lastCompleted)],
       ['polling iterations', String(result.iterations)]
     ])
-    .write()
+  if (formatted.summaryMarkdown) {
+    s = s.addRaw(formatted.summaryMarkdown)
+  }
+  await s.write()
 
   core.setOutput('state', result.state)
   core.setOutput('total-checks', String(lastTotal))
