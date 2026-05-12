@@ -11,6 +11,12 @@ import { pollUntilComplete } from './polling.js'
 import { buildTargetUrl, writeCommitStatus } from './commit-status.js'
 import { determineMode, isHeadShaAction } from './mode.js'
 import { hasActiveApproval } from './review-status.js'
+import {
+  formatCheckResults,
+  formatPollBody,
+  formatPollTitle
+} from './check-results.js'
+import type { AggregatedCheckRun } from './filter.js'
 
 type SummaryInput = {
   state: string
@@ -19,12 +25,13 @@ type SummaryInput = {
   evaluated: number
   completed: number
   iterations: number
+  checkResultsMarkdown?: string
 }
 
 const writeSummary = async (input: SummaryInput): Promise<void> => {
   const stateEmoji =
     input.state === 'success' ? '✅' : input.state === 'failure' ? '❌' : '🟡'
-  await core.summary
+  let s = core.summary
     .addHeading(`${stateEmoji} automerge-gate: ${input.state}`)
     .addTable([
       [
@@ -38,7 +45,10 @@ const writeSummary = async (input: SummaryInput): Promise<void> => {
       ['completed checks', String(input.completed)],
       ['polling iterations', String(input.iterations)]
     ])
-    .write()
+  if (input.checkResultsMarkdown) {
+    s = s.addRaw(input.checkResultsMarkdown)
+  }
+  await s.write()
 }
 
 export const runPrivate = async (
@@ -116,6 +126,7 @@ export const runPrivate = async (
   let lastTotal = 0
   let lastEvaluated = 0
   let lastCompleted = 0
+  let lastRuns: AggregatedCheckRun[] = []
 
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef)
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo)
@@ -136,6 +147,7 @@ export const runPrivate = async (
       )
       lastEvaluated = afterSelf.length
       lastCompleted = afterSelf.filter((r) => r.status === 'completed').length
+      lastRuns = afterSelf
       return afterSelf
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -150,25 +162,29 @@ export const runPrivate = async (
   // GitHub as the default `Expected — Waiting for status to be reported`
   // until the next push or `auto_merge_enabled` event re-triggers the
   // gate.
-  core.startGroup('Polling')
+  const pollStartedAt = Date.now()
   const pollResult = await pollUntilComplete(fetchRuns, {
     intervalSeconds: inputs.pollIntervalSeconds,
-    onIteration: (s) => {
-      core.info(
-        `Poll #${s.iteration}: state=${s.state}, ${s.completed}/${s.total} completed`
-      )
+    onIteration: async (s) => {
+      const title = formatPollTitle({
+        elapsedMs: Date.now() - pollStartedAt,
+        iteration: s.iteration,
+        state: s.state,
+        completed: s.completed,
+        total: s.total
+      })
+      const body = formatPollBody(lastRuns)
+      await core.group(title, async () => {
+        for (const line of body) core.info(line)
+      })
     }
   })
-  core.endGroup()
 
-  core.startGroup('Result')
-  core.info(
-    `Polling finished: state=${pollResult.state}, iterations=${pollResult.iterations}`
-  )
-  core.info(
-    `Checks: total=${lastTotal}, evaluated=${lastEvaluated}, completed=${lastCompleted}`
-  )
-  core.endGroup()
+  const formatted = formatCheckResults(lastRuns)
+  for (const line of formatted.logLines) core.info(line)
+  if (formatted.pendingCount > 0) {
+    core.warning(`pending check(s) at result time: ${formatted.pendingCount}`)
+  }
 
   // Defensive guard: `pollUntilComplete` is a `while(true)` that only
   // returns when the aggregated state is terminal (`success` / `failure`).
@@ -217,7 +233,8 @@ export const runPrivate = async (
     total: lastTotal,
     evaluated: lastEvaluated,
     completed: lastCompleted,
-    iterations: pollResult.iterations
+    iterations: pollResult.iterations,
+    checkResultsMarkdown: formatted.summaryMarkdown
   })
 
   // Gating: the gate job's commit status conclusion is what GitHub's
