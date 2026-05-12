@@ -50,7 +50,7 @@ sequenceDiagram
 
 If Auto Merge is already enabled when you push a new commit, the gate re-evaluates the new SHA automatically — no need to disable→enable. Commit status is keyed by `(SHA, context)`, so there's no per-SHA cleanup: each push targets a fresh SHA whose status starts blank until the gate posts a verdict.
 
-Teams whose Approve culture is "LGTM, but not necessarily merge now" can drop `pull_request_review` from the workflow's `on:` to disable the Approve trigger; the workflow YAML is the toggle.
+If your team uses an Approve review to mean "looks good" rather than "ready to merge", remove `pull_request_review` from the workflow's `on:` triggers. The gate then only enters polling mode when Auto Merge is explicitly enabled.
 
 ### Public mode
 
