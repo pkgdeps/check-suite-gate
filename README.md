@@ -137,7 +137,7 @@ jobs:
       pull-requests: read
       actions: read
     steps:
-      - uses: pkgdeps/automerge-gate@v4.0.0
+      - uses: pkgdeps/automerge-gate@v4.1.0
         with:
           gate-mode: 'private'
           context: 'automerge-gate/all-passed'
@@ -170,7 +170,7 @@ jobs:
       pull-requests: read
       actions: read
     steps:
-      - uses: pkgdeps/automerge-gate@v4.0.0
+      - uses: pkgdeps/automerge-gate@v4.1.0
         with:
           gate-mode: 'public'
 ```
@@ -225,7 +225,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 **Exclude specific GitHub Apps from aggregation:**
 
 ```yaml
-- uses: pkgdeps/automerge-gate@v4.0.0
+- uses: pkgdeps/automerge-gate@v4.1.0
   with:
     gate-mode: 'private'
     ignore-apps: |
@@ -236,7 +236,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 **Exclude check_runs by glob:**
 
 ```yaml
-- uses: pkgdeps/automerge-gate@v4.0.0
+- uses: pkgdeps/automerge-gate@v4.1.0
   with:
     gate-mode: 'private'
     ignore-checks: |
@@ -249,7 +249,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 **Tune polling interval for fast CI:**
 
 ```yaml
-- uses: pkgdeps/automerge-gate@v4.0.0
+- uses: pkgdeps/automerge-gate@v4.1.0
   with:
     gate-mode: 'private'
     poll-interval-seconds: '10'
@@ -273,7 +273,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 
 ## Versioning
 
-Releases are published as **immutable semver tags** (`v4.0.0`, `v4.1.0`, ...). There is intentionally no moving major tag (`v4`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
+Releases are published as **immutable semver tags** (`v1.0.0`, `v1.1.0`, ...). There is intentionally no moving major tag (`v4`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
 
 ## License
 
