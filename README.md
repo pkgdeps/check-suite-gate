@@ -273,7 +273,7 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 
 ## Versioning
 
-Releases are published as **immutable semver tags** (`v4.1.0`, `v4.1.0`, ...). There is intentionally no moving major tag (`v4`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
+Releases are published as **immutable semver tags** (`v1.0.0`, `v1.1.0`, ...). There is intentionally no moving major tag (`v4`) — pin a fixed version in your workflow and let Renovate / Dependabot open PRs when a new version ships. This eliminates the supply-chain risk of a moving tag being silently rewritten.
 
 ## License
 
