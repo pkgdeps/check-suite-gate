@@ -37,4 +37,7 @@ jobs:
         with:
           gate-mode: 'private'
           context: 'automerge-gate/self-test'
-          ignore-checks: 'automerge-gate/self-test'
+          ignore-checks: |
+            [
+              { "name": "automerge-gate/self-test" }
+            ]
