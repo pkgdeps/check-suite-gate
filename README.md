@@ -224,6 +224,8 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
   --jq '.check_runs[] | {name, app: .app.slug, conclusion}'
 ```
 
+This command returns **check_runs only** — the data source `ignore-checks` filters against. It does not include legacy commit statuses (`/commits/{sha}/status`) or PR reviews (`/pulls/{n}/reviews`). automerge-gate likewise reads only check_runs (plus, in `gate-mode: private`, PR reviews for the approval signal); legacy commit statuses are not evaluated. Signals such as Copilot Code Review surface as PR reviews and never appear in `/check-runs`.
+
 **Exclude specific GitHub Apps from aggregation:**
 
 ```yaml
