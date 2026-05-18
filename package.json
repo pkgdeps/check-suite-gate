@@ -8,7 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node24 --format=cjs --main-fields=module,main --outfile=dist/index.js",
     "lint": "eslint --no-error-on-unmatched-pattern src/ __tests__/",
     "test": "vitest run",
     "test:watch": "vitest",
