@@ -253,18 +253,37 @@ gh api --paginate --slurp "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 
 `--slurp` cannot be combined with `gh`'s built-in `--jq`, so the pipe to an external `jq` is intentional. `--slurp` collects all paginated pages into one array; the `jq` expression then flattens `.check_runs[]` across pages so the result is a single rule list rather than one array per page.
 
-This emits one `{ app, name }` object per check_run (the `app` field is dropped when GitHub doesn't return it for a given run, leaving just `{ name }` — still a valid rule). Pick the rows you want to silence and paste them into `ignore-checks`:
+This emits one `{ app, name }` row per check_run. Pick the rows you want to silence and paste them into `ignore-checks` as-is — each row is already a valid rule:
 
 ```yaml
 with:
   ignore-checks: |
     [
-      { "app": "xcode-cloud", "name": "Build (release)" },
-      { "name": "optional-flaky" }
+      { "app": "github-actions", "name": "optional-flaky" },
+      { "app": "xcode-cloud", "name": "Build (release)" }
     ]
 ```
 
-`workflow` is not included in the inspection output: the workflow file path requires an extra `actions/runs/{run_id}` API call per check_run that doesn't fit in a single `gh api | jq`. When you need it, write `{ "workflow": "ci-go.yaml", "name": "lint" }` by hand — the basename is whatever you see under `.github/workflows/`.
+When the same `name` repeats across rows, those are separate check_runs from different workflows whose job names happen to collide — a common monorepo pattern:
+
+```json
+[
+  { "app": "github-actions", "name": "gate" },
+  { "app": "github-actions", "name": "gate" },
+  { "app": "github-actions", "name": "check" },
+  { "app": "github-actions", "name": "gate" }
+]
+```
+
+To ignore one of them but not the others, add a `workflow` field to disambiguate. The `workflow` field is not in the inspection output (it requires an extra `actions/runs/{run_id}` API call per check_run that doesn't fit in a single `gh api | jq`); fill in the workflow basename by hand from `.github/workflows/`:
+
+```yaml
+with:
+  ignore-checks: |
+    [
+      { "app": "github-actions", "workflow": "ci-go.yaml", "name": "gate" }
+    ]
+```
 
 The command covers **check_runs only** — the data source `ignore-checks` filters against. It does not include legacy commit statuses (`/commits/{sha}/status`) or PR reviews (`/pulls/{n}/reviews`). automerge-gate likewise reads only check_runs (plus, in `gate-mode: private`, PR reviews for the approval signal); legacy commit statuses are not evaluated. Signals such as Copilot Code Review surface as PR reviews and never appear in `/check-runs`.
 
