@@ -260,7 +260,7 @@ When the same job name (e.g. `lint`) exists in multiple workflows and you only w
       ci-go.yaml::lint        # only ci-go.yaml's lint job
       ci-python.yml::test     # only ci-python.yml's test job
       ci-*.yaml::optional-*   # globs work on both sides
-      lint                    # unqualified — matches lint across all workflows (back-compat)
+      lint                    # unqualified — matches lint across all workflows
 ```
 
 A pattern is treated as workflow-qualified only when the left side ends with `.yaml::` or `.yml::`. Otherwise it matches by check name across every workflow exactly like before. Patterns like `build::release` (without the workflow file extension) remain literal name matches with no split. Runs without a known workflow file (third-party Checks such as Codecov) never match a qualified pattern.

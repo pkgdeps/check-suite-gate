@@ -181,7 +181,7 @@ describe('applyFilters', () => {
       expect(result.length).toBe(1)
     })
 
-    it('unqualified pattern still matches across all workflows (back-compat)', () => {
+    it('unqualified pattern still matches across all workflows', () => {
       const result = applyFilters([goLint, pyLint], [], ['lint'])
       expect(result).toEqual([])
     })
