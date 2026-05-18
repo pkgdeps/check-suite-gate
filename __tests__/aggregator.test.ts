@@ -56,4 +56,31 @@ describe('aggregate', () => {
     expect(result.total).toBe(2)
     expect(result.completed).toBe(1)
   })
+
+  // Regression guard: upsidr/merge-gatekeeper keys check_runs by `name` and
+  // gets overwritten when two workflows expose the same job name, masking a
+  // FAILURE behind another workflow's SUCCESS. aggregate() must evaluate every
+  // run independently so this collision cannot hide a red.
+  //
+  // Both orderings are asserted because a naive Map<name, run> last-write-wins
+  // implementation produces different results depending on input order. Only
+  // the failure-first variant actually catches such a regression — keep both
+  // so the property is asserted symmetrically.
+  it('treats same-named check_runs independently when success appears before failure', () => {
+    const result = aggregate([
+      make({ id: 1, suite_id: 10, name: 'check', conclusion: 'success' }),
+      make({ id: 2, suite_id: 20, name: 'check', conclusion: 'failure' })
+    ])
+    expect(result.state).toBe('failure')
+    expect(result.total).toBe(2)
+  })
+
+  it('treats same-named check_runs independently when failure appears before success', () => {
+    const result = aggregate([
+      make({ id: 1, suite_id: 10, name: 'check', conclusion: 'failure' }),
+      make({ id: 2, suite_id: 20, name: 'check', conclusion: 'success' })
+    ])
+    expect(result.state).toBe('failure')
+    expect(result.total).toBe(2)
+  })
 })
