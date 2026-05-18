@@ -2,10 +2,11 @@ import * as core from '@actions/core'
 import type { ParsedInputs } from './inputs.js'
 import type { RunDeps } from './run-deps.js'
 import { fetchAllCheckRuns, createWorkflowPathLookup } from './api.js'
-import { applyFilters } from './filter.js'
+import { applyFilters, hasWorkflowRule } from './filter.js'
 import {
   excludeOwnWorkflowRuns,
-  parseCurrentWorkflowPath
+  parseCurrentWorkflowPath,
+  resolveWorkflowPaths
 } from './self-exclusion.js'
 import { pollUntilComplete } from './polling.js'
 import { buildTargetUrl, writeCommitStatus } from './commit-status.js'
@@ -130,16 +131,16 @@ export const runPrivate = async (
 
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef)
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo)
+  const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks)
 
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(octokit, owner, repo, sha)
       lastTotal = allRuns.length
-      const afterFilters = applyFilters(
-        allRuns,
-        inputs.ignoreApps,
-        inputs.ignoreChecks
-      )
+      const enriched = needsWorkflowPath
+        ? await resolveWorkflowPaths(allRuns, lookupWorkflowPath)
+        : allRuns
+      const afterFilters = applyFilters(enriched, inputs.ignoreChecks)
       const afterSelf = await excludeOwnWorkflowRuns(
         afterFilters,
         currentWorkflowPath,

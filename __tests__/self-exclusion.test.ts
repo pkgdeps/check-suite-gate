@@ -4,7 +4,8 @@ import {
   extractRunId,
   parseCurrentWorkflowPath,
   isFromSameWorkflow,
-  excludeOwnWorkflowRuns
+  excludeOwnWorkflowRuns,
+  resolveWorkflowPaths
 } from '../src/self-exclusion.js'
 import type { AggregatedCheckRun } from '../src/filter.js'
 
@@ -180,5 +181,52 @@ describe('excludeOwnWorkflowRuns', () => {
     const result = await excludeOwnWorkflowRuns(runs, null, lookup)
     expect(result).toHaveLength(2)
     expect(lookup).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveWorkflowPaths', () => {
+  it('populates workflow_path for github-actions runs', async () => {
+    const lookup = vi.fn(async (runId: number) =>
+      runId === 1
+        ? '.github/workflows/ci-go.yaml'
+        : '.github/workflows/ci-python.yaml'
+    )
+    const runs = [
+      make('github-actions', 'https://github.com/o/r/actions/runs/1/job/1'),
+      make('github-actions', 'https://github.com/o/r/actions/runs/2/job/1')
+    ]
+    const result = await resolveWorkflowPaths(runs, lookup)
+    expect(result.map((r) => r.workflow_path)).toEqual([
+      '.github/workflows/ci-go.yaml',
+      '.github/workflows/ci-python.yaml'
+    ])
+  })
+
+  it('sets workflow_path to null for non-github-actions apps', async () => {
+    const lookup = vi.fn()
+    const runs = [
+      make('codecov', 'https://github.com/o/r/actions/runs/1/job/1'),
+      make('cloudflare-pages', 'https://example.com')
+    ]
+    const result = await resolveWorkflowPaths(runs, lookup)
+    expect(result.map((r) => r.workflow_path)).toEqual([null, null])
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('sets workflow_path to null when details_url has no run_id', async () => {
+    const lookup = vi.fn()
+    const runs = [make('github-actions', 'https://example.com')]
+    const result = await resolveWorkflowPaths(runs, lookup)
+    expect(result[0].workflow_path).toBeNull()
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('propagates null from the lookup (API error / run not found)', async () => {
+    const lookup = vi.fn().mockResolvedValue(null)
+    const runs = [
+      make('github-actions', 'https://github.com/o/r/actions/runs/1/job/1')
+    ]
+    const result = await resolveWorkflowPaths(runs, lookup)
+    expect(result[0].workflow_path).toBeNull()
   })
 })

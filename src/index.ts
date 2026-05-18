@@ -56,7 +56,6 @@ const buildEnv = (): RunEnv => ({
 const run = async (): Promise<void> => {
   const inputs = parseInputs({
     context: core.getInput('context'),
-    ignoreApps: core.getInput('ignore-apps'),
     ignoreChecks: core.getInput('ignore-checks'),
     gateMode: core.getInput('gate-mode'),
     token: core.getInput('token'),

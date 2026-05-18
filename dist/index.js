@@ -23877,27 +23877,160 @@ var require_github = __commonJS({
   }
 });
 
+// node_modules/jsonc-parser/lib/umd/main.js
+var require_main2 = __commonJS({
+  "node_modules/jsonc-parser/lib/umd/main.js"(exports2, module2) {
+    (function(factory) {
+      if (typeof module2 === "object" && typeof module2.exports === "object") {
+        var v = factory(require, exports2);
+        if (v !== void 0) module2.exports = v;
+      } else if (typeof define === "function" && define.amd) {
+        define(["require", "exports", "./impl/format", "./impl/edit", "./impl/scanner", "./impl/parser"], factory);
+      }
+    })(function(require2, exports3) {
+      "use strict";
+      Object.defineProperty(exports3, "__esModule", { value: true });
+      exports3.applyEdits = exports3.modify = exports3.format = exports3.printParseErrorCode = exports3.ParseErrorCode = exports3.stripComments = exports3.visit = exports3.getNodeValue = exports3.getNodePath = exports3.findNodeAtOffset = exports3.findNodeAtLocation = exports3.parseTree = exports3.parse = exports3.getLocation = exports3.SyntaxKind = exports3.ScanError = exports3.createScanner = void 0;
+      const formatter = require2("./impl/format");
+      const edit = require2("./impl/edit");
+      const scanner = require2("./impl/scanner");
+      const parser = require2("./impl/parser");
+      exports3.createScanner = scanner.createScanner;
+      var ScanError;
+      (function(ScanError2) {
+        ScanError2[ScanError2["None"] = 0] = "None";
+        ScanError2[ScanError2["UnexpectedEndOfComment"] = 1] = "UnexpectedEndOfComment";
+        ScanError2[ScanError2["UnexpectedEndOfString"] = 2] = "UnexpectedEndOfString";
+        ScanError2[ScanError2["UnexpectedEndOfNumber"] = 3] = "UnexpectedEndOfNumber";
+        ScanError2[ScanError2["InvalidUnicode"] = 4] = "InvalidUnicode";
+        ScanError2[ScanError2["InvalidEscapeCharacter"] = 5] = "InvalidEscapeCharacter";
+        ScanError2[ScanError2["InvalidCharacter"] = 6] = "InvalidCharacter";
+      })(ScanError || (exports3.ScanError = ScanError = {}));
+      var SyntaxKind;
+      (function(SyntaxKind2) {
+        SyntaxKind2[SyntaxKind2["OpenBraceToken"] = 1] = "OpenBraceToken";
+        SyntaxKind2[SyntaxKind2["CloseBraceToken"] = 2] = "CloseBraceToken";
+        SyntaxKind2[SyntaxKind2["OpenBracketToken"] = 3] = "OpenBracketToken";
+        SyntaxKind2[SyntaxKind2["CloseBracketToken"] = 4] = "CloseBracketToken";
+        SyntaxKind2[SyntaxKind2["CommaToken"] = 5] = "CommaToken";
+        SyntaxKind2[SyntaxKind2["ColonToken"] = 6] = "ColonToken";
+        SyntaxKind2[SyntaxKind2["NullKeyword"] = 7] = "NullKeyword";
+        SyntaxKind2[SyntaxKind2["TrueKeyword"] = 8] = "TrueKeyword";
+        SyntaxKind2[SyntaxKind2["FalseKeyword"] = 9] = "FalseKeyword";
+        SyntaxKind2[SyntaxKind2["StringLiteral"] = 10] = "StringLiteral";
+        SyntaxKind2[SyntaxKind2["NumericLiteral"] = 11] = "NumericLiteral";
+        SyntaxKind2[SyntaxKind2["LineCommentTrivia"] = 12] = "LineCommentTrivia";
+        SyntaxKind2[SyntaxKind2["BlockCommentTrivia"] = 13] = "BlockCommentTrivia";
+        SyntaxKind2[SyntaxKind2["LineBreakTrivia"] = 14] = "LineBreakTrivia";
+        SyntaxKind2[SyntaxKind2["Trivia"] = 15] = "Trivia";
+        SyntaxKind2[SyntaxKind2["Unknown"] = 16] = "Unknown";
+        SyntaxKind2[SyntaxKind2["EOF"] = 17] = "EOF";
+      })(SyntaxKind || (exports3.SyntaxKind = SyntaxKind = {}));
+      exports3.getLocation = parser.getLocation;
+      exports3.parse = parser.parse;
+      exports3.parseTree = parser.parseTree;
+      exports3.findNodeAtLocation = parser.findNodeAtLocation;
+      exports3.findNodeAtOffset = parser.findNodeAtOffset;
+      exports3.getNodePath = parser.getNodePath;
+      exports3.getNodeValue = parser.getNodeValue;
+      exports3.visit = parser.visit;
+      exports3.stripComments = parser.stripComments;
+      var ParseErrorCode;
+      (function(ParseErrorCode2) {
+        ParseErrorCode2[ParseErrorCode2["InvalidSymbol"] = 1] = "InvalidSymbol";
+        ParseErrorCode2[ParseErrorCode2["InvalidNumberFormat"] = 2] = "InvalidNumberFormat";
+        ParseErrorCode2[ParseErrorCode2["PropertyNameExpected"] = 3] = "PropertyNameExpected";
+        ParseErrorCode2[ParseErrorCode2["ValueExpected"] = 4] = "ValueExpected";
+        ParseErrorCode2[ParseErrorCode2["ColonExpected"] = 5] = "ColonExpected";
+        ParseErrorCode2[ParseErrorCode2["CommaExpected"] = 6] = "CommaExpected";
+        ParseErrorCode2[ParseErrorCode2["CloseBraceExpected"] = 7] = "CloseBraceExpected";
+        ParseErrorCode2[ParseErrorCode2["CloseBracketExpected"] = 8] = "CloseBracketExpected";
+        ParseErrorCode2[ParseErrorCode2["EndOfFileExpected"] = 9] = "EndOfFileExpected";
+        ParseErrorCode2[ParseErrorCode2["InvalidCommentToken"] = 10] = "InvalidCommentToken";
+        ParseErrorCode2[ParseErrorCode2["UnexpectedEndOfComment"] = 11] = "UnexpectedEndOfComment";
+        ParseErrorCode2[ParseErrorCode2["UnexpectedEndOfString"] = 12] = "UnexpectedEndOfString";
+        ParseErrorCode2[ParseErrorCode2["UnexpectedEndOfNumber"] = 13] = "UnexpectedEndOfNumber";
+        ParseErrorCode2[ParseErrorCode2["InvalidUnicode"] = 14] = "InvalidUnicode";
+        ParseErrorCode2[ParseErrorCode2["InvalidEscapeCharacter"] = 15] = "InvalidEscapeCharacter";
+        ParseErrorCode2[ParseErrorCode2["InvalidCharacter"] = 16] = "InvalidCharacter";
+      })(ParseErrorCode || (exports3.ParseErrorCode = ParseErrorCode = {}));
+      function printParseErrorCode(code) {
+        switch (code) {
+          case 1:
+            return "InvalidSymbol";
+          case 2:
+            return "InvalidNumberFormat";
+          case 3:
+            return "PropertyNameExpected";
+          case 4:
+            return "ValueExpected";
+          case 5:
+            return "ColonExpected";
+          case 6:
+            return "CommaExpected";
+          case 7:
+            return "CloseBraceExpected";
+          case 8:
+            return "CloseBracketExpected";
+          case 9:
+            return "EndOfFileExpected";
+          case 10:
+            return "InvalidCommentToken";
+          case 11:
+            return "UnexpectedEndOfComment";
+          case 12:
+            return "UnexpectedEndOfString";
+          case 13:
+            return "UnexpectedEndOfNumber";
+          case 14:
+            return "InvalidUnicode";
+          case 15:
+            return "InvalidEscapeCharacter";
+          case 16:
+            return "InvalidCharacter";
+        }
+        return "<unknown ParseErrorCode>";
+      }
+      exports3.printParseErrorCode = printParseErrorCode;
+      function format(documentText, range, options) {
+        return formatter.format(documentText, range, options);
+      }
+      exports3.format = format;
+      function modify(text, path2, value, options) {
+        return edit.setProperty(text, path2, value, options);
+      }
+      exports3.modify = modify;
+      function applyEdits(text, edits) {
+        let sortedEdits = edits.slice(0).sort((a, b) => {
+          const diff = a.offset - b.offset;
+          if (diff === 0) {
+            return a.length - b.length;
+          }
+          return diff;
+        });
+        let lastModifiedOffset = text.length;
+        for (let i = sortedEdits.length - 1; i >= 0; i--) {
+          let e = sortedEdits[i];
+          if (e.offset + e.length <= lastModifiedOffset) {
+            text = edit.applyEdit(text, e);
+          } else {
+            throw new Error("Overlapping edit");
+          }
+          lastModifiedOffset = e.offset;
+        }
+        return text;
+      }
+      exports3.applyEdits = applyEdits;
+    });
+  }
+});
+
 // src/index.ts
 var core5 = __toESM(require_core());
 var github = __toESM(require_github());
 
-// src/filter.ts
-var import_node_path = __toESM(require("node:path"));
-var parseList = (raw) => raw.split(/[,\n]/).map((s) => s.trim()).filter((s) => s.length > 0);
-var matchesAnyGlob = (value, patterns) => {
-  const SENTINEL = "";
-  const flat = value.replaceAll("/", SENTINEL);
-  return patterns.some(
-    (pattern) => import_node_path.default.matchesGlob(flat, pattern.replaceAll("/", SENTINEL))
-  );
-};
-var applyFilters = (runs, ignoreApps, ignoreChecks) => runs.filter((run2) => {
-  if (ignoreApps.includes(run2.app.slug)) return false;
-  if (matchesAnyGlob(run2.name, ignoreChecks)) return false;
-  return true;
-});
-
 // src/inputs.ts
+var import_jsonc_parser = __toESM(require_main2());
 var parsePositiveInt = (raw, name) => {
   const n = Number.parseInt(raw, 10);
   if (Number.isNaN(n) || n <= 0) {
@@ -23913,14 +24046,61 @@ var parseGateMode = (raw) => {
     `input \`gate-mode\` must be "private" or "public" (got: "${raw}"). If migrating from v2: gate: main \u2192 gate-mode: private, gate: fork \u2192 gate-mode: public.`
   );
 };
+var ALLOWED_FIELDS = /* @__PURE__ */ new Set(["app", "workflow", "name"]);
+var validateRule = (raw, index) => {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error(
+      `input \`ignore-checks\`: entry [${index}] must be an object, got ${Array.isArray(raw) ? "array" : typeof raw}`
+    );
+  }
+  const obj = raw;
+  const rule = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (!ALLOWED_FIELDS.has(key)) {
+      throw new Error(
+        `input \`ignore-checks\`: entry [${index}] has unknown field "${key}" (allowed: app, workflow, name)`
+      );
+    }
+    if (typeof value !== "string" || value.length === 0) {
+      throw new Error(
+        `input \`ignore-checks\`: entry [${index}].${key} must be a non-empty string`
+      );
+    }
+    rule[key] = value;
+  }
+  if (Object.keys(rule).length === 0) {
+    throw new Error(
+      `input \`ignore-checks\`: entry [${index}] is an empty object \u2014 at least one of app / workflow / name must be set`
+    );
+  }
+  return rule;
+};
+var parseIgnoreChecks = (raw) => {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return [];
+  const errors = [];
+  const parsed = (0, import_jsonc_parser.parse)(trimmed, errors, {
+    allowTrailingComma: true,
+    disallowComments: false
+  });
+  if (errors.length > 0) {
+    const summary3 = errors.map((e) => `offset=${e.offset} length=${e.length} error=${e.error}`).join("; ");
+    throw new Error(`input \`ignore-checks\`: JSONC parse failed: ${summary3}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      `input \`ignore-checks\`: top-level value must be an array (got ${parsed === null ? "null" : typeof parsed})`
+    );
+  }
+  return parsed.map((entry, i) => validateRule(entry, i));
+};
 var parseInputs = (raw) => {
   if (raw.token.trim().length === 0) {
     throw new Error("input `token` must not be empty");
   }
   return {
     context: raw.context,
-    ignoreApps: parseList(raw.ignoreApps),
-    ignoreChecks: parseList(raw.ignoreChecks),
+    ignoreChecks: parseIgnoreChecks(raw.ignoreChecks),
     gateMode: parseGateMode(raw.gateMode),
     token: raw.token,
     pollIntervalSeconds: parsePositiveInt(
@@ -24003,6 +24183,34 @@ var withRetry = async (fn, options) => {
   throw lastErr;
 };
 
+// src/filter.ts
+var import_node_path = __toESM(require("node:path"));
+var SENTINEL = "";
+var globMatches = (value, pattern) => {
+  const flat = value.replaceAll("/", SENTINEL);
+  return import_node_path.default.matchesGlob(flat, pattern.replaceAll("/", SENTINEL));
+};
+var workflowBasename = (workflowPath) => import_node_path.default.basename(workflowPath);
+var ruleMatches = (rule, run2) => {
+  if (rule.app !== void 0 && !globMatches(run2.app.slug, rule.app)) {
+    return false;
+  }
+  if (rule.workflow !== void 0) {
+    if (run2.workflow_path === void 0 || run2.workflow_path === null) {
+      return false;
+    }
+    if (!globMatches(workflowBasename(run2.workflow_path), rule.workflow)) {
+      return false;
+    }
+  }
+  if (rule.name !== void 0 && !globMatches(run2.name, rule.name)) {
+    return false;
+  }
+  return true;
+};
+var hasWorkflowRule = (rules) => rules.some((r) => r.workflow !== void 0);
+var applyFilters = (runs, ignoreChecks) => runs.filter((run2) => !ignoreChecks.some((rule) => ruleMatches(rule, run2)));
+
 // src/self-exclusion.ts
 var RUN_ID_REGEX = /\/actions\/runs\/(\d+)\/job\/\d+/;
 var extractRunId = (detailsUrl) => {
@@ -24037,6 +24245,23 @@ var excludeOwnWorkflowRuns = async (runs, currentWorkflowPath, lookupWorkflowPat
     if (!own) keep.push(r);
   }
   return keep;
+};
+var resolveWorkflowPaths = async (runs, lookupWorkflowPath) => {
+  const result = [];
+  for (const r of runs) {
+    if (r.app.slug !== "github-actions") {
+      result.push({ ...r, workflow_path: null });
+      continue;
+    }
+    const runId = extractRunId(r.details_url);
+    if (runId === null) {
+      result.push({ ...r, workflow_path: null });
+      continue;
+    }
+    const path2 = await lookupWorkflowPath(runId);
+    result.push({ ...r, workflow_path: path2 });
+  }
+  return result;
 };
 
 // src/conclusion.ts
@@ -24388,15 +24613,13 @@ var runPrivate = async (deps, inputs) => {
   let lastRuns = [];
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef);
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo);
+  const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(octokit, owner, repo, sha);
       lastTotal = allRuns.length;
-      const afterFilters = applyFilters(
-        allRuns,
-        inputs.ignoreApps,
-        inputs.ignoreChecks
-      );
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(allRuns, lookupWorkflowPath) : allRuns;
+      const afterFilters = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         afterFilters,
         currentWorkflowPath,
@@ -24489,6 +24712,7 @@ var runPublic = async (deps, inputs) => {
     context2.owner,
     context2.repo
   );
+  const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
   const fetchRuns = async () => {
     try {
       const all = await fetchAllCheckRuns(
@@ -24498,7 +24722,8 @@ var runPublic = async (deps, inputs) => {
         sha
       );
       lastTotal = all.length;
-      const filtered = applyFilters(all, inputs.ignoreApps, inputs.ignoreChecks);
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(all, lookupWorkflowPath) : all;
+      const filtered = applyFilters(enriched, inputs.ignoreChecks);
       const afterSelf = await excludeOwnWorkflowRuns(
         filtered,
         currentWorkflowPath,
@@ -24607,7 +24832,6 @@ var buildEnv = () => ({
 var run = async () => {
   const inputs = parseInputs({
     context: core5.getInput("context"),
-    ignoreApps: core5.getInput("ignore-apps"),
     ignoreChecks: core5.getInput("ignore-checks"),
     gateMode: core5.getInput("gate-mode"),
     token: core5.getInput("token"),

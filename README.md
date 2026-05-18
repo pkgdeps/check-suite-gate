@@ -46,7 +46,7 @@ sequenceDiagram
 
 1. A PR is opened. There's no merge intent yet, so the action skips without writing a status. The required check stays at GitHub's default `Expected — Waiting for status to be reported`, which keeps the PR blocked.
 2. The maintainer clicks **Enable Auto Merge**, _or_ a reviewer with write access submits an **Approve** review. The action enters polling mode and watches every other check on the PR.
-3. The action polls every other check on the PR, applying any `ignore-apps` / `ignore-checks` filters.
+3. The action polls every other check on the PR, applying any `ignore-checks` filters.
 4. After polling, the action writes the aggregated verdict (`state: success` or `failure`) as a commit status on the head SHA, keyed by the configured `context`. GitHub's required-check evaluation looks up the same `(SHA, context)` pair, so the verdict turns the required check green or red immediately.
 5. GitHub's native auto-merge fires when the required check turns green.
 
@@ -80,7 +80,7 @@ sequenceDiagram
 ```
 
 1. The PR is opened (or pushed to). The workflow always triggers. GitHub Actions auto-creates a check_run named after the gate job (e.g. `automerge-gate/all-passed`) — that check_run is the required-check signal.
-2. The action polls every other check on the PR, applying any `ignore-apps` / `ignore-checks` filters.
+2. The action polls every other check on the PR, applying any `ignore-checks` filters.
 3. After polling, the action exits 0 (success) or non-zero (failure). The job's check_run conclusion follows the exit code, and GitHub treats it as the required check's verdict.
 4. GitHub's native auto-merge fires when the required check turns green.
 
@@ -209,46 +209,60 @@ Open Settings → General → Pull Requests and tick **Allow auto-merge**. Witho
 | `gate-mode`             | **yes**  | (none)                      | `private` / `public`. `private` = action writes the aggregated commit status via the legacy Commit Status API (token needs `statuses: write` + `checks: read`). `public` = gate signal is the JOB's own check_run conclusion; the job's `name:` must match the required-check context (token can be `checks: read`). |
 | `context`               | no       | `automerge-gate/all-passed` | Aggregated commit status context. **`gate-mode: private` only** — must match the required check in your ruleset. Ignored when `gate-mode: public` (the job name is the signal).                                                                                                                                      |
 | `poll-interval-seconds` | no       | `30`                        | How often to re-fetch check status                                                                                                                                                                                                                                                                                   |
-| `ignore-apps`           | no       | (empty)                     | GitHub App slugs to exclude. Comma-separated **or newline-separated**                                                                                                                                                                                                                                                |
-| `ignore-checks`         | no       | (empty)                     | check_run name patterns to exclude (glob `*` / `?`). Comma-separated **or newline-separated**                                                                                                                                                                                                                        |
+| `ignore-checks`         | no       | `[]`                        | JSONC array of rules to exclude check_runs from aggregation. Each rule is `{ app?, workflow?, name? }`; fields are AND-evaluated and every field is a glob (`*` / `?`). See [Examples](#examples).                                                                                                                   |
 | `token`                 | no       | `${{ github.token }}`       | GitHub token used to read checks and (when permitted) write the aggregated commit status                                                                                                                                                                                                                             |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
 
 ### Examples
 
-`ignore-checks` matches against the GitHub API's `check_run.name`, which is `jobs.<key>.name` (or `jobs.<key>` if `name:` is omitted). It is **not** the `<workflow> / <job>` string the GitHub UI shows. Inspect the actual values with:
+#### `ignore-checks`
+
+`ignore-checks` is a JSONC array of rules. Each rule is an object with optional fields:
+
+| field      | matches against                             | notes                                                                                                                                                                                       |
+| ---------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app`      | The originating GitHub App's slug           | Read from the check_run's check_suite. Read with `gh api ... /check-suites` (see below).                                                                                                    |
+| `workflow` | Basename of the workflow file               | GitHub Actions only; third-party Checks (no workflow file) never match a rule with `workflow` set.                                                                                          |
+| `name`     | `check_run.name`                            | This is `jobs.<key>.name` (or `jobs.<key>` if `name:` is omitted), **not** the `<workflow> / <job>` string the UI shows.                                                                    |
+
+Within a single rule, all present fields must match (AND); absent fields are wildcards. Every field is a glob — `*` matches any run of characters, `?` matches one character. Across rules, the action excludes a check_run if **any** rule matches.
+
+JSONC means standard JSON plus `//` / `/* */` comments and trailing commas — so this is legal:
+
+```yaml
+with:
+  ignore-checks: |
+    [
+      { "app": "dependabot" },                                  // ignore everything from dependabot
+      { "app": "renovate" },
+      { "name": "optional-*" },                                 // glob across all workflows / apps
+      { "app": "xcode-cloud", "name": "Build *" },              // only xcode-cloud's build jobs
+      { "workflow": "ci-go.yaml", "name": "lint" },             // only ci-go.yaml's lint job (GitHub Actions)
+    ]
+```
+
+#### Discovering what to ignore
+
+The schema is shaped to mirror `gh api ... | jq` output, so you can inspect a PR's checks and paste the rows you want to ignore directly into `ignore-checks`.
+
+`name` for each check_run (the API field `ignore-checks` matches against):
 
 ```bash
 gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
-  --jq '.check_runs[] | {name, app: .app.slug, conclusion}'
+  --jq '[.check_runs[] | { name }]'
 ```
 
-**Exclude specific GitHub Apps from aggregation:**
+`app` slugs producing check_runs on the SHA (read at the **check_suite** level — `check_run.app` can be missing depending on the listing endpoint, so the suite is the canonical source):
 
-```yaml
-- uses: pkgdeps/automerge-gate@v4.1.0
-  with:
-    gate-mode: 'private'
-    ignore-apps: |
-      dependabot
-      renovate
+```bash
+gh api "repos/{owner}/{repo}/commits/{sha}/check-suites" \
+  --jq '[.check_suites[] | { app: .app.slug }] | unique_by(.app)'
 ```
 
-**Exclude check_runs by glob:**
+These inspection commands cover **check_runs only** — the data source `ignore-checks` filters against. They do not include legacy commit statuses (`/commits/{sha}/status`) or PR reviews (`/pulls/{n}/reviews`). automerge-gate likewise reads only check_runs (plus, in `gate-mode: private`, PR reviews for the approval signal); legacy commit statuses are not evaluated. Signals such as Copilot Code Review surface as PR reviews and never appear in `/check-runs`.
 
-```yaml
-- uses: pkgdeps/automerge-gate@v4.1.0
-  with:
-    gate-mode: 'private'
-    ignore-checks: |
-      optional-*
-      docs-only
-```
-
-`ignore-apps` / `ignore-checks` accept either comma-separated values (`a,b,c`) or one entry per line via the YAML `|` block scalar.
-
-**Tune polling interval for fast CI:**
+#### Tune polling interval for fast CI
 
 ```yaml
 - uses: pkgdeps/automerge-gate@v4.1.0

@@ -22,14 +22,10 @@ inputs:
     description: 'How often (seconds) to re-fetch check status during the polling loop'
     required: false
     default: '30'
-  ignore-apps:
-    description: 'GitHub App slugs whose check_runs are excluded. Comma-separated or newline-separated.'
-    required: false
-    default: ''
   ignore-checks:
-    description: 'check_run name patterns to exclude. Glob (* / ?) supported. Comma-separated or newline-separated.'
+    description: 'JSONC array of rules to exclude check_runs from aggregation. Each rule is an object with optional fields: app (GitHub App slug), workflow (workflow file basename, e.g. ci.yaml), name (check_run name). Fields are AND-evaluated; glob (* / ?) supported on every field. Example: ''[{"name":"optional-*"},{"app":"dependabot"},{"app":"xcode-cloud","name":"Build *"},{"workflow":"ci-go.yaml","name":"lint"}]''.'
     required: false
-    default: ''
+    default: '[]'
   token:
     description: 'GitHub token used to read checks and (when permitted) write the aggregated commit status'
     required: false

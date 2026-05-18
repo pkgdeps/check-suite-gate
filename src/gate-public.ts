@@ -2,10 +2,15 @@ import * as core from '@actions/core'
 import type { ParsedInputs } from './inputs.js'
 import type { RunDeps } from './run-deps.js'
 import { fetchAllCheckRuns, createWorkflowPathLookup } from './api.js'
-import { applyFilters, type AggregatedCheckRun } from './filter.js'
+import {
+  applyFilters,
+  hasWorkflowRule,
+  type AggregatedCheckRun
+} from './filter.js'
 import {
   excludeOwnWorkflowRuns,
-  parseCurrentWorkflowPath
+  parseCurrentWorkflowPath,
+  resolveWorkflowPaths
 } from './self-exclusion.js'
 import { pollUntilComplete } from './polling.js'
 import {
@@ -33,6 +38,8 @@ export const runPublic = async (
     context.repo
   )
 
+  const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks)
+
   const fetchRuns = async () => {
     try {
       const all = await fetchAllCheckRuns(
@@ -42,7 +49,10 @@ export const runPublic = async (
         sha
       )
       lastTotal = all.length
-      const filtered = applyFilters(all, inputs.ignoreApps, inputs.ignoreChecks)
+      const enriched = needsWorkflowPath
+        ? await resolveWorkflowPaths(all, lookupWorkflowPath)
+        : all
+      const filtered = applyFilters(enriched, inputs.ignoreChecks)
       const afterSelf = await excludeOwnWorkflowRuns(
         filtered,
         currentWorkflowPath,
