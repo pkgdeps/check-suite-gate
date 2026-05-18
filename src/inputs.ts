@@ -1,4 +1,8 @@
-import { parse as parseJsonc, type ParseError } from 'jsonc-parser'
+import {
+  parse as parseJsonc,
+  printParseErrorCode,
+  type ParseError
+} from 'jsonc-parser'
 
 export type RawInputs = {
   context: string
@@ -93,7 +97,14 @@ export const parseIgnoreChecks = (raw: string): IgnoreRule[] => {
   })
   if (errors.length > 0) {
     const summary = errors
-      .map((e) => `offset=${e.offset} length=${e.length} error=${e.error}`)
+      .map((e) => {
+        // Reproduce the offending fragment so the user can locate it
+        // without manually counting characters.
+        const snippet = trimmed
+          .slice(e.offset, e.offset + Math.max(e.length, 1))
+          .replace(/\n/g, '\\n')
+        return `${printParseErrorCode(e.error)} at offset ${e.offset} ("${snippet}")`
+      })
       .join('; ')
     throw new Error(`input \`ignore-checks\`: JSONC parse failed: ${summary}`)
   }

@@ -24747,6 +24747,43 @@ var ParseErrorCode;
   ParseErrorCode2[ParseErrorCode2["InvalidEscapeCharacter"] = 15] = "InvalidEscapeCharacter";
   ParseErrorCode2[ParseErrorCode2["InvalidCharacter"] = 16] = "InvalidCharacter";
 })(ParseErrorCode || (ParseErrorCode = {}));
+function printParseErrorCode(code) {
+  switch (code) {
+    case 1:
+      return "InvalidSymbol";
+    case 2:
+      return "InvalidNumberFormat";
+    case 3:
+      return "PropertyNameExpected";
+    case 4:
+      return "ValueExpected";
+    case 5:
+      return "ColonExpected";
+    case 6:
+      return "CommaExpected";
+    case 7:
+      return "CloseBraceExpected";
+    case 8:
+      return "CloseBracketExpected";
+    case 9:
+      return "EndOfFileExpected";
+    case 10:
+      return "InvalidCommentToken";
+    case 11:
+      return "UnexpectedEndOfComment";
+    case 12:
+      return "UnexpectedEndOfString";
+    case 13:
+      return "UnexpectedEndOfNumber";
+    case 14:
+      return "InvalidUnicode";
+    case 15:
+      return "InvalidEscapeCharacter";
+    case 16:
+      return "InvalidCharacter";
+  }
+  return "<unknown ParseErrorCode>";
+}
 
 // src/inputs.ts
 var parsePositiveInt = (raw, name) => {
@@ -24802,7 +24839,10 @@ var parseIgnoreChecks = (raw) => {
     disallowComments: false
   });
   if (errors.length > 0) {
-    const summary3 = errors.map((e) => `offset=${e.offset} length=${e.length} error=${e.error}`).join("; ");
+    const summary3 = errors.map((e) => {
+      const snippet = trimmed.slice(e.offset, e.offset + Math.max(e.length, 1)).replace(/\n/g, "\\n");
+      return `${printParseErrorCode(e.error)} at offset ${e.offset} ("${snippet}")`;
+    }).join("; ");
     throw new Error(`input \`ignore-checks\`: JSONC parse failed: ${summary3}`);
   }
   if (!Array.isArray(parsed)) {

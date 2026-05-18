@@ -136,4 +136,13 @@ describe('parseIgnoreChecks', () => {
     expect(() => parseIgnoreChecks('not json')).toThrow(/JSONC parse failed/)
     expect(() => parseIgnoreChecks('[{"app":')).toThrow(/JSONC parse failed/)
   })
+
+  it('error messages name the JSONC fault and quote the offending fragment', () => {
+    // jsonc-parser exposes numeric error codes (e.g. 4 = "ValueExpected").
+    // The error surfaced to the user must name the fault and include the
+    // bad fragment, not just expose the raw code number.
+    expect(() => parseIgnoreChecks('[{"app":}]')).toThrow(/ValueExpected/)
+    expect(() => parseIgnoreChecks('[{"app":}]')).toThrow(/at offset \d+/)
+    expect(() => parseIgnoreChecks('[{"app":}]')).not.toThrow(/error=\d+/)
+  })
 })
