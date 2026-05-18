@@ -221,10 +221,17 @@ There is **no `timeout-seconds` input on purpose** — timeout is delegated enti
 
 ```bash
 gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
-  --jq '.check_runs[] | {name, app: .app.slug, conclusion}'
+  --jq '.check_runs[] | {name, conclusion}'
 ```
 
-This command returns **check_runs only** — the data source `ignore-checks` filters against. It does not include legacy commit statuses (`/commits/{sha}/status`) or PR reviews (`/pulls/{n}/reviews`). automerge-gate likewise reads only check_runs (plus, in `gate-mode: private`, PR reviews for the approval signal); legacy commit statuses are not evaluated. Signals such as Copilot Code Review surface as PR reviews and never appear in `/check-runs`.
+`ignore-apps` matches against the originating GitHub App's slug. automerge-gate reads the slug from the **check_suite** level (not the check_run), because `check_run.app` can be missing depending on the listing endpoint. Inspect with:
+
+```bash
+gh api "repos/{owner}/{repo}/commits/{sha}/check-suites" \
+  --jq '[.check_suites[].app.slug] | unique'
+```
+
+These commands cover **check_runs only** — the data sources `ignore-checks` / `ignore-apps` filter against. They do not include legacy commit statuses (`/commits/{sha}/status`) or PR reviews (`/pulls/{n}/reviews`). automerge-gate likewise reads only check_runs (plus, in `gate-mode: private`, PR reviews for the approval signal); legacy commit statuses are not evaluated. Signals such as Copilot Code Review surface as PR reviews and never appear in `/check-runs`.
 
 **Exclude specific GitHub Apps from aggregation:**
 
