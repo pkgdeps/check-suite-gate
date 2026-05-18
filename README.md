@@ -247,9 +247,11 @@ with:
 The schema is shaped to mirror `gh api ... | jq` output, so you can inspect a PR's checks and paste the rows you want to ignore directly into `ignore-checks`.
 
 ```bash
-gh api --paginate "repos/{owner}/{repo}/commits/{sha}/check-runs" \
-  --jq '[.check_runs[] | { app: .app.slug, name } | with_entries(select(.value != null))]'
+gh api --paginate --slurp "repos/{owner}/{repo}/commits/{sha}/check-runs" \
+  --jq '[.[].check_runs[] | { app: .app.slug, name } | with_entries(select(.value != null))]'
 ```
+
+`--slurp` is required so `gh` collects all paginated responses into a single JSON array before `--jq` runs — without it `gh` evaluates `--jq` per page and emits multiple arrays that cannot be pasted as one rule list.
 
 This emits one `{ app, name }` object per check_run (the `app` field is dropped when GitHub doesn't return it for a given run, leaving just `{ name }` — still a valid rule). Pick the rows you want to silence and paste them into `ignore-checks`:
 
