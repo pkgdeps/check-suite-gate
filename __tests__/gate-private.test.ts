@@ -194,32 +194,27 @@ describe('runPrivate', () => {
               name: 'lint',
               status: 'completed',
               conclusion: 'failure',
-              details_url:
-                'https://github.com/o/r/actions/runs/1001/job/2001'
+              details_url: 'https://github.com/o/r/actions/runs/1001/job/2001'
             },
             {
               id: 2,
               name: 'lint',
               status: 'completed',
               conclusion: 'success',
-              details_url:
-                'https://github.com/o/r/actions/runs/1002/job/2002'
+              details_url: 'https://github.com/o/r/actions/runs/1002/job/2002'
             }
           ]
         })
       ),
-      http.get(
-        `${BASE}/repos/:owner/:repo/actions/runs/:id`,
-        ({ params }) => {
-          const id = Number.parseInt(params.id as string, 10)
-          workflowLookups.push(id)
-          const path =
-            id === 1001
-              ? '.github/workflows/ci-go.yaml'
-              : '.github/workflows/ci-python.yaml'
-          return HttpResponse.json({ path })
-        }
-      )
+      http.get(`${BASE}/repos/:owner/:repo/actions/runs/:id`, ({ params }) => {
+        const id = Number.parseInt(params.id as string, 10)
+        workflowLookups.push(id)
+        const path =
+          id === 1001
+            ? '.github/workflows/ci-go.yaml'
+            : '.github/workflows/ci-python.yaml'
+        return HttpResponse.json({ path })
+      })
     )
 
     const postBodies: Array<Record<string, unknown>> = []
