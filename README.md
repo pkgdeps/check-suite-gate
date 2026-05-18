@@ -246,21 +246,25 @@ with:
 
 The schema is shaped to mirror `gh api ... | jq` output, so you can inspect a PR's checks and paste the rows you want to ignore directly into `ignore-checks`.
 
-`name` for each check_run (the API field `ignore-checks` matches against):
-
 ```bash
-gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
-  --jq '[.check_runs[] | { name }]'
+gh api --paginate "repos/{owner}/{repo}/commits/{sha}/check-runs" \
+  --jq '[.check_runs[] | { app: .app.slug, name } | with_entries(select(.value != null))]'
 ```
 
-`app` slugs producing check_runs on the SHA (read at the **check_suite** level — `check_run.app` can be missing depending on the listing endpoint, so the suite is the canonical source):
+This emits one `{ app, name }` object per check_run (the `app` field is dropped when GitHub doesn't return it for a given run, leaving just `{ name }` — still a valid rule). Pick the rows you want to silence and paste them into `ignore-checks`:
 
-```bash
-gh api "repos/{owner}/{repo}/commits/{sha}/check-suites" \
-  --jq '[.check_suites[] | { app: .app.slug }] | unique_by(.app)'
+```yaml
+with:
+  ignore-checks: |
+    [
+      { "app": "xcode-cloud", "name": "Build (release)" },
+      { "name": "optional-flaky" }
+    ]
 ```
 
-These inspection commands cover **check_runs only** — the data source `ignore-checks` filters against. They do not include legacy commit statuses (`/commits/{sha}/status`) or PR reviews (`/pulls/{n}/reviews`). automerge-gate likewise reads only check_runs (plus, in `gate-mode: private`, PR reviews for the approval signal); legacy commit statuses are not evaluated. Signals such as Copilot Code Review surface as PR reviews and never appear in `/check-runs`.
+`workflow` is not included in the inspection output: the workflow file path requires an extra `actions/runs/{run_id}` API call per check_run that doesn't fit in a single `gh api | jq`. When you need it, write `{ "workflow": "ci-go.yaml", "name": "lint" }` by hand — the basename is whatever you see under `.github/workflows/`.
+
+The command covers **check_runs only** — the data source `ignore-checks` filters against. It does not include legacy commit statuses (`/commits/{sha}/status`) or PR reviews (`/pulls/{n}/reviews`). automerge-gate likewise reads only check_runs (plus, in `gate-mode: private`, PR reviews for the approval signal); legacy commit statuses are not evaluated. Signals such as Copilot Code Review surface as PR reviews and never appear in `/check-runs`.
 
 #### Tune polling interval for fast CI
 
