@@ -248,6 +248,23 @@ gh api "repos/{owner}/{repo}/commits/{sha}/check-runs" \
 
 `ignore-apps` / `ignore-checks` accept either comma-separated values (`a,b,c`) or one entry per line via the YAML `|` block scalar.
 
+**Limit a check name to a specific workflow file (`.yaml::` / `.yml::`):**
+
+When the same job name (e.g. `lint`) exists in multiple workflows and you only want to ignore one of them, qualify the pattern with the workflow file's basename:
+
+```yaml
+- uses: pkgdeps/automerge-gate@v4.1.0
+  with:
+    gate-mode: 'private'
+    ignore-checks: |
+      ci-go.yaml::lint        # only ci-go.yaml's lint job
+      ci-python.yml::test     # only ci-python.yml's test job
+      ci-*.yaml::optional-*   # globs work on both sides
+      lint                    # unqualified — matches lint across all workflows (back-compat)
+```
+
+A pattern is treated as workflow-qualified only when the left side ends with `.yaml::` or `.yml::`. Otherwise it matches by check name across every workflow exactly like before. Patterns like `build::release` (without the workflow file extension) remain literal name matches with no split. Runs without a known workflow file (third-party Checks such as Codecov) never match a qualified pattern.
+
 **Tune polling interval for fast CI:**
 
 ```yaml

@@ -67,3 +67,29 @@ export const excludeOwnWorkflowRuns = async (
   }
   return keep
 }
+
+// Populates `workflow_path` on each check_run by looking up the originating
+// workflow file path via the actions API. Only runs from the `github-actions`
+// app have a workflow_path; for everything else (third-party Checks, missing
+// run_id) the value is set to `null`. Used by applyFilters when ignore-checks
+// contains a workflow-qualified pattern.
+export const resolveWorkflowPaths = async (
+  runs: AggregatedCheckRun[],
+  lookupWorkflowPath: WorkflowPathLookup
+): Promise<AggregatedCheckRun[]> => {
+  const result: AggregatedCheckRun[] = []
+  for (const r of runs) {
+    if (r.app.slug !== 'github-actions') {
+      result.push({ ...r, workflow_path: null })
+      continue
+    }
+    const runId = extractRunId(r.details_url)
+    if (runId === null) {
+      result.push({ ...r, workflow_path: null })
+      continue
+    }
+    const path = await lookupWorkflowPath(runId)
+    result.push({ ...r, workflow_path: path })
+  }
+  return result
+}

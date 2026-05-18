@@ -23884,6 +23884,14 @@ var github = __toESM(require_github());
 // src/filter.ts
 var import_node_path = __toESM(require("node:path"));
 var parseList = (raw) => raw.split(/[,\n]/).map((s) => s.trim()).filter((s) => s.length > 0);
+var QUALIFIER_REGEX = /^(.*?\.ya?ml)::(.*)$/;
+var isWorkflowQualifiedPattern = (pattern) => /\.ya?ml::/.test(pattern);
+var hasWorkflowQualifiedPattern = (patterns) => patterns.some((p) => isWorkflowQualifiedPattern(p));
+var splitQualifiedPattern = (pattern) => {
+  const match = pattern.match(QUALIFIER_REGEX);
+  if (match === null) return null;
+  return { workflow: match[1], name: match[2] };
+};
 var matchesAnyGlob = (value, patterns) => {
   const SENTINEL = "";
   const flat = value.replaceAll("/", SENTINEL);
@@ -23891,9 +23899,20 @@ var matchesAnyGlob = (value, patterns) => {
     (pattern) => import_node_path.default.matchesGlob(flat, pattern.replaceAll("/", SENTINEL))
   );
 };
+var matchesIgnorePattern = (run2, pattern) => {
+  const qualified = splitQualifiedPattern(pattern);
+  if (qualified === null) {
+    return matchesAnyGlob(run2.name, [pattern]);
+  }
+  if (run2.workflow_path === void 0 || run2.workflow_path === null) {
+    return false;
+  }
+  const basename = import_node_path.default.basename(run2.workflow_path);
+  return matchesAnyGlob(basename, [qualified.workflow]) && matchesAnyGlob(run2.name, [qualified.name]);
+};
 var applyFilters = (runs, ignoreApps, ignoreChecks) => runs.filter((run2) => {
   if (ignoreApps.includes(run2.app.slug)) return false;
-  if (matchesAnyGlob(run2.name, ignoreChecks)) return false;
+  if (ignoreChecks.some((p) => matchesIgnorePattern(run2, p))) return false;
   return true;
 });
 
@@ -24037,6 +24056,23 @@ var excludeOwnWorkflowRuns = async (runs, currentWorkflowPath, lookupWorkflowPat
     if (!own) keep.push(r);
   }
   return keep;
+};
+var resolveWorkflowPaths = async (runs, lookupWorkflowPath) => {
+  const result = [];
+  for (const r of runs) {
+    if (r.app.slug !== "github-actions") {
+      result.push({ ...r, workflow_path: null });
+      continue;
+    }
+    const runId = extractRunId(r.details_url);
+    if (runId === null) {
+      result.push({ ...r, workflow_path: null });
+      continue;
+    }
+    const path2 = await lookupWorkflowPath(runId);
+    result.push({ ...r, workflow_path: path2 });
+  }
+  return result;
 };
 
 // src/conclusion.ts
@@ -24388,12 +24424,14 @@ var runPrivate = async (deps, inputs) => {
   let lastRuns = [];
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef);
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo);
+  const needsWorkflowPath = hasWorkflowQualifiedPattern(inputs.ignoreChecks);
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(octokit, owner, repo, sha);
       lastTotal = allRuns.length;
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(allRuns, lookupWorkflowPath) : allRuns;
       const afterFilters = applyFilters(
-        allRuns,
+        enriched,
         inputs.ignoreApps,
         inputs.ignoreChecks
       );
@@ -24489,6 +24527,7 @@ var runPublic = async (deps, inputs) => {
     context2.owner,
     context2.repo
   );
+  const needsWorkflowPath = hasWorkflowQualifiedPattern(inputs.ignoreChecks);
   const fetchRuns = async () => {
     try {
       const all = await fetchAllCheckRuns(
@@ -24498,7 +24537,12 @@ var runPublic = async (deps, inputs) => {
         sha
       );
       lastTotal = all.length;
-      const filtered = applyFilters(all, inputs.ignoreApps, inputs.ignoreChecks);
+      const enriched = needsWorkflowPath ? await resolveWorkflowPaths(all, lookupWorkflowPath) : all;
+      const filtered = applyFilters(
+        enriched,
+        inputs.ignoreApps,
+        inputs.ignoreChecks
+      );
       const afterSelf = await excludeOwnWorkflowRuns(
         filtered,
         currentWorkflowPath,
