@@ -24908,7 +24908,7 @@ var globMatches = (value, pattern) => {
   const flat = value.replaceAll("/", SENTINEL);
   return import_node_path.default.matchesGlob(flat, pattern.replaceAll("/", SENTINEL));
 };
-var workflowBasename = (workflowPath) => import_node_path.default.basename(workflowPath);
+var workflowBasename = (workflowPath) => import_node_path.default.posix.basename(workflowPath);
 var ruleMatches = (rule, run2) => {
   if (rule.app !== void 0 && !globMatches(run2.app.slug, rule.app)) {
     return false;

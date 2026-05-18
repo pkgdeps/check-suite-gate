@@ -34,8 +34,11 @@ const globMatches = (value: string, pattern: string): boolean => {
 // Workflow rules match against the *basename* of the workflow file path
 // (e.g. "ci-go.yaml" out of ".github/workflows/ci-go.yaml"), because the
 // basename is what users write in their config and what jq output shows.
+// Workflow paths from the GitHub API always use forward slashes, so use
+// `path.posix.basename` to stay correct on Windows runners (where the
+// platform-default `path.basename` treats '/' as a regular character).
 const workflowBasename = (workflowPath: string): string =>
-  path.basename(workflowPath)
+  path.posix.basename(workflowPath)
 
 // True if a single IgnoreRule matches a check_run. All present fields
 // must match (AND); absent fields are wildcards. Rules with a `workflow`
