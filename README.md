@@ -222,7 +222,7 @@ There is **no `timeout-seconds` input on purpose** — timeout is delegated enti
 
 | field      | matches against                             | notes                                                                                                                                                                                       |
 | ---------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app`      | The originating GitHub App's slug           | Read from the check_run's check_suite. Read with `gh api ... /check-suites` (see below).                                                                                                    |
+| `app`      | The originating GitHub App's slug           | Internally the action reads the slug from the check_run's parent check_suite. See [Discovering what to ignore](#discovering-what-to-ignore) below for the inspection command.               |
 | `workflow` | Basename of the workflow file               | GitHub Actions only; third-party Checks (no workflow file) never match a rule with `workflow` set. **Requires the workflow's token to have `actions: read` permission** — the action resolves each run's workflow path via the Actions API, and without that scope the lookup returns `null` so the rule never matches. |
 | `name`     | `check_run.name`                            | This is `jobs.<key>.name` (or `jobs.<key>` if `name:` is omitted), **not** the `<workflow> / <job>` string the UI shows.                                                                    |
 
