@@ -24,7 +24,7 @@ export type AggregatedCheckRun = {
 // (e.g. 'ci / lint'), and users expect 'ci*' to match those.
 // Flatten by substituting '/' with a sentinel char absent from both
 // names and glob patterns, on both the value and each pattern.
-const SENTINEL = ''
+const SENTINEL = '\u0001'
 
 const globMatches = (value: string, pattern: string): boolean => {
   const flat = value.replaceAll('/', SENTINEL)
