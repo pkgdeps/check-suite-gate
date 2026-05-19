@@ -25005,21 +25005,25 @@ var excludeOwnWorkflowRuns = async (runs, currentWorkflowPath, lookupWorkflowPat
   return keep;
 };
 var resolveWorkflowPaths = async (runs, lookupWorkflowPath) => {
-  const result = [];
+  const uniqueRunIds = /* @__PURE__ */ new Set();
   for (const r of runs) {
-    if (r.app.slug !== "github-actions") {
-      result.push({ ...r, workflow_path: null });
-      continue;
-    }
+    if (r.app.slug !== "github-actions") continue;
     const runId = extractRunId(r.details_url);
-    if (runId === null) {
-      result.push({ ...r, workflow_path: null });
-      continue;
-    }
-    const path2 = await lookupWorkflowPath(runId);
-    result.push({ ...r, workflow_path: path2 });
+    if (runId !== null) uniqueRunIds.add(runId);
   }
-  return result;
+  const entries = await Promise.all(
+    Array.from(
+      uniqueRunIds,
+      async (id) => [id, await lookupWorkflowPath(id)]
+    )
+  );
+  const pathByRunId = new Map(entries);
+  return runs.map((r) => {
+    if (r.app.slug !== "github-actions") return { ...r, workflow_path: null };
+    const runId = extractRunId(r.details_url);
+    if (runId === null) return { ...r, workflow_path: null };
+    return { ...r, workflow_path: pathByRunId.get(runId) ?? null };
+  });
 };
 
 // src/conclusion.ts

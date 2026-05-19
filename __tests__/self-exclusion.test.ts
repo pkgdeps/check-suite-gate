@@ -229,4 +229,20 @@ describe('resolveWorkflowPaths', () => {
     const result = await resolveWorkflowPaths(runs, lookup)
     expect(result[0].workflow_path).toBeNull()
   })
+
+  it('looks up each unique run_id only once', async () => {
+    const lookup = vi.fn().mockResolvedValue('.github/workflows/ci.yaml')
+    const runs = [
+      make('github-actions', 'https://github.com/o/r/actions/runs/1/job/1'),
+      make('github-actions', 'https://github.com/o/r/actions/runs/1/job/2'),
+      make('github-actions', 'https://github.com/o/r/actions/runs/1/job/3')
+    ]
+    const result = await resolveWorkflowPaths(runs, lookup)
+    expect(lookup).toHaveBeenCalledTimes(1)
+    expect(result.map((r) => r.workflow_path)).toEqual([
+      '.github/workflows/ci.yaml',
+      '.github/workflows/ci.yaml',
+      '.github/workflows/ci.yaml'
+    ])
+  })
 })

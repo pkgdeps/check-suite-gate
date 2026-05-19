@@ -73,23 +73,31 @@ export const excludeOwnWorkflowRuns = async (
 // app have a workflow_path; for everything else (third-party Checks, missing
 // run_id) the value is set to `null`. Used by applyFilters when ignore-checks
 // contains any rule that references the `workflow` field.
+//
+// Unique run_ids are looked up in parallel so total latency is the slowest
+// single call rather than the sum. `createWorkflowPathLookup` memoizes per
+// run_id, so duplicate check_runs from the same workflow run share one call.
 export const resolveWorkflowPaths = async (
   runs: AggregatedCheckRun[],
   lookupWorkflowPath: WorkflowPathLookup
 ): Promise<AggregatedCheckRun[]> => {
-  const result: AggregatedCheckRun[] = []
+  const uniqueRunIds = new Set<number>()
   for (const r of runs) {
-    if (r.app.slug !== 'github-actions') {
-      result.push({ ...r, workflow_path: null })
-      continue
-    }
+    if (r.app.slug !== 'github-actions') continue
     const runId = extractRunId(r.details_url)
-    if (runId === null) {
-      result.push({ ...r, workflow_path: null })
-      continue
-    }
-    const path = await lookupWorkflowPath(runId)
-    result.push({ ...r, workflow_path: path })
+    if (runId !== null) uniqueRunIds.add(runId)
   }
-  return result
+  const entries = await Promise.all(
+    Array.from(
+      uniqueRunIds,
+      async (id) => [id, await lookupWorkflowPath(id)] as const
+    )
+  )
+  const pathByRunId = new Map(entries)
+  return runs.map((r) => {
+    if (r.app.slug !== 'github-actions') return { ...r, workflow_path: null }
+    const runId = extractRunId(r.details_url)
+    if (runId === null) return { ...r, workflow_path: null }
+    return { ...r, workflow_path: pathByRunId.get(runId) ?? null }
+  })
 }
