@@ -67,3 +67,37 @@ export const excludeOwnWorkflowRuns = async (
   }
   return keep
 }
+
+// Populates `workflow_path` on each check_run by looking up the originating
+// workflow file path via the actions API. Only runs from the `github-actions`
+// app have a workflow_path; for everything else (third-party Checks, missing
+// run_id) the value is set to `null`. Used by applyFilters when ignore-checks
+// contains any rule that references the `workflow` field.
+//
+// Unique run_ids are looked up in parallel so total latency is the slowest
+// single call rather than the sum. `createWorkflowPathLookup` memoizes per
+// run_id, so duplicate check_runs from the same workflow run share one call.
+export const resolveWorkflowPaths = async (
+  runs: AggregatedCheckRun[],
+  lookupWorkflowPath: WorkflowPathLookup
+): Promise<AggregatedCheckRun[]> => {
+  const uniqueRunIds = new Set<number>()
+  for (const r of runs) {
+    if (r.app.slug !== 'github-actions') continue
+    const runId = extractRunId(r.details_url)
+    if (runId !== null) uniqueRunIds.add(runId)
+  }
+  const entries = await Promise.all(
+    Array.from(
+      uniqueRunIds,
+      async (id) => [id, await lookupWorkflowPath(id)] as const
+    )
+  )
+  const pathByRunId = new Map(entries)
+  return runs.map((r) => {
+    if (r.app.slug !== 'github-actions') return { ...r, workflow_path: null }
+    const runId = extractRunId(r.details_url)
+    if (runId === null) return { ...r, workflow_path: null }
+    return { ...r, workflow_path: pathByRunId.get(runId) ?? null }
+  })
+}

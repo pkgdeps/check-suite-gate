@@ -163,6 +163,91 @@ describe('runPrivate', () => {
     })
   })
 
+  it('workflow rule in ignore-checks filters the matching workflow before aggregation', async () => {
+    // Two check_runs with the same name "lint" come from two different
+    // workflow files. The FAILING one lives in ci-go.yaml; the PASSING
+    // one in ci-python.yaml. A `workflow` rule keyed to ci-go.yaml must
+    // remove the failing run, so the gate posts success.
+    //
+    // Crucially, the verdict flip only happens if the gate (a) pre-
+    // resolves workflow_path via the actions API and (b) feeds it to
+    // applyFilters. If that wiring breaks, the failure leaks through and
+    // the assertion below catches it — which the lower-level filter /
+    // resolveWorkflowPaths unit tests do NOT, because they don't exercise
+    // the gate's orchestration.
+    const workflowLookups: number[] = []
+    server.use(
+      http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () =>
+        HttpResponse.json({
+          total_count: 1,
+          check_suites: [
+            { id: 100, app: { slug: 'github-actions' }, status: 'completed' }
+          ]
+        })
+      ),
+      http.get(`${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`, () =>
+        HttpResponse.json({
+          total_count: 2,
+          check_runs: [
+            {
+              id: 1,
+              name: 'lint',
+              status: 'completed',
+              conclusion: 'failure',
+              details_url: 'https://github.com/o/r/actions/runs/1001/job/2001'
+            },
+            {
+              id: 2,
+              name: 'lint',
+              status: 'completed',
+              conclusion: 'success',
+              details_url: 'https://github.com/o/r/actions/runs/1002/job/2002'
+            }
+          ]
+        })
+      ),
+      http.get(`${BASE}/repos/:owner/:repo/actions/runs/:id`, ({ params }) => {
+        const id = Number.parseInt(params.id as string, 10)
+        workflowLookups.push(id)
+        const path =
+          id === 1001
+            ? '.github/workflows/ci-go.yaml'
+            : '.github/workflows/ci-python.yaml'
+        return HttpResponse.json({ path })
+      })
+    )
+
+    const postBodies: Array<Record<string, unknown>> = []
+    const postShas: string[] = []
+    captureStatusPosts(postBodies, postShas)
+
+    const deps = buildDeps({
+      eventName: 'pull_request',
+      action: 'auto_merge_enabled',
+      pr: {
+        number: 1,
+        head: { sha: 'sha-head' },
+        auto_merge: { enabled_by: { login: 'maintainer' } }
+      }
+    })
+
+    await runPrivate(
+      deps,
+      buildInputs({
+        ignoreChecks: [{ workflow: 'ci-go.yaml', name: 'lint' }]
+      })
+    )
+
+    // Both check_runs were resolved → both runs were looked up.
+    expect(workflowLookups.sort()).toEqual([1001, 1002])
+    // The failing run was filtered out by the workflow rule.
+    expect(postBodies).toHaveLength(1)
+    expect(postBodies[0]).toMatchObject({
+      state: 'success',
+      context: 'automerge-gate/all-passed'
+    })
+  })
+
   it('drive-by Approve (read permission) → no POST', async () => {
     const postBodies: Array<Record<string, unknown>> = []
     const postShas: string[] = []

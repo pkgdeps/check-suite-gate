@@ -48,7 +48,6 @@ export const buildInputs = (
   override: Partial<ParsedInputs> = {}
 ): ParsedInputs => ({
   context: 'automerge-gate/all-passed',
-  ignoreApps: [],
   ignoreChecks: [],
   gateMode: 'private',
   token: 'test-token',
