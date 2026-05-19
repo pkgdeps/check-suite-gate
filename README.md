@@ -268,10 +268,10 @@ When the same `name` repeats across rows, those are separate check_runs from dif
 
 ```json
 [
-  { "app": "github-actions", "name": "gate" },
-  { "app": "github-actions", "name": "gate" },
   { "app": "github-actions", "name": "check" },
-  { "app": "github-actions", "name": "gate" }
+  { "app": "github-actions", "name": "check" },
+  { "app": "github-actions", "name": "gate" },
+  { "app": "github-actions", "name": "check" }
 ]
 ```
 
@@ -281,7 +281,7 @@ To ignore one of them but not the others, add a `workflow` field to disambiguate
 with:
   ignore-checks: |
     [
-      { "app": "github-actions", "workflow": "ci-go.yaml", "name": "gate" }
+      { "app": "github-actions", "workflow": "ci-go.yaml", "name": "check" }
     ]
 ```
 
