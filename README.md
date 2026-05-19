@@ -275,7 +275,22 @@ When the same `name` repeats across rows, those are separate check_runs from dif
 ]
 ```
 
-To ignore one of them but not the others, add a `workflow` field to disambiguate. The `workflow` field is not in the inspection output (it requires an extra `actions/runs/{run_id}` API call per check_run that doesn't fit in a single `gh api | jq`); fill in the workflow basename by hand from `.github/workflows/`:
+To ignore one of them but not the others, add a `workflow` field to disambiguate. The `workflow` field is not in the inspection command above, but you can join in the workflow path via `check_suite_id` with a second `gh api` call against `/actions/runs?head_sha={sha}`:
+
+```bash
+SHA=...
+runs=$(gh api --paginate --slurp "repos/{owner}/{repo}/actions/runs?head_sha=$SHA" \
+  | jq 'map(.workflow_runs[]) | map({ (.check_suite_id|tostring): (.path | split("/") | last) }) | add')
+
+gh api --paginate --slurp "repos/{owner}/{repo}/commits/$SHA/check-runs" \
+  | jq --argjson runs "$runs" '[
+      .[].check_runs[]
+      | { app: .app.slug, workflow: $runs[.check_suite.id|tostring], name }
+      | with_entries(select(.value != null))
+    ]'
+```
+
+`workflow` is `null` (and therefore dropped from the row) for third-party Checks that don't originate from a GitHub Actions workflow. The second call requires the same `actions: read` token scope that the action itself uses for `workflow` rules. Paste the disambiguating row into `ignore-checks`:
 
 ```yaml
 with:
