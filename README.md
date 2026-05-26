@@ -13,6 +13,7 @@ GitHub's branch protection / rulesets ask you to list each required status check
 automerge-gate replaces that list with **one aggregated check**. You register only that single check (`automerge-gate/all-passed`) as the required check in your ruleset. When a maintainer clicks Enable Auto Merge, the action waits for every check on the PR — across workflow files, across GitHub Apps — then reports the verdict (in private mode, as a commit status on the head SHA; in public mode, via the gate job's exit code). GitHub's native auto-merge takes the PR from there.
 
 - Related: [Is it possible to require all GitHub Actions tasks to pass without enumerating them? · community · Discussion #26733](https://github.com/orgs/community/discussions/26733)
+- Migrating from merge-gatekeeper? See the [migration guide](docs/migration-from-merge-gatekeeper.md).
 
 ## How it works
 
