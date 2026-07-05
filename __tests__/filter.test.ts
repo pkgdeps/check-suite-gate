@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   applyFilters,
   hasWorkflowRule,
+  matchesAnyRule,
   type AggregatedCheckRun
 } from '../src/filter.js'
-import type { IgnoreRule } from '../src/inputs.js'
+import type { CheckRule } from '../src/inputs.js'
 
 const make = (
   appSlug: string,
@@ -231,9 +232,39 @@ describe('applyFilters', () => {
   })
 })
 
+describe('matchesAnyRule', () => {
+  const run = make('github-actions', 'build')
+
+  it('returns true when any rule matches (OR across rules)', () => {
+    expect(
+      matchesAnyRule([{ name: 'unrelated' }, { app: 'github-*' }], run)
+    ).toBe(true)
+  })
+
+  it('returns false when no rule matches', () => {
+    expect(
+      matchesAnyRule([{ name: 'unrelated' }, { app: 'dependabot' }], run)
+    ).toBe(false)
+  })
+
+  it('returns false for an empty rule list', () => {
+    expect(matchesAnyRule([], run)).toBe(false)
+  })
+
+  it('never matches a workflow rule against an unresolved workflow_path', () => {
+    expect(matchesAnyRule([{ workflow: 'ci.yaml' }], run)).toBe(false)
+    expect(
+      matchesAnyRule(
+        [{ workflow: 'ci.yaml' }],
+        make('github-actions', 'build', null)
+      )
+    ).toBe(false)
+  })
+})
+
 describe('hasWorkflowRule', () => {
   it('returns true if any rule has a `workflow` field', () => {
-    const rules: IgnoreRule[] = [
+    const rules: CheckRule[] = [
       { app: 'dependabot' },
       { workflow: 'ci.yaml', name: 'lint' }
     ]
@@ -241,7 +272,7 @@ describe('hasWorkflowRule', () => {
   })
 
   it('returns false if no rule has a `workflow` field', () => {
-    const rules: IgnoreRule[] = [{ app: 'dependabot' }, { name: 'optional-*' }]
+    const rules: CheckRule[] = [{ app: 'dependabot' }, { name: 'optional-*' }]
     expect(hasWorkflowRule(rules)).toBe(false)
   })
 

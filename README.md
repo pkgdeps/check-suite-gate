@@ -47,7 +47,7 @@ sequenceDiagram
 
 1. A PR is opened. There's no merge intent yet, so the action skips without writing a status. The required check stays at GitHub's default `Expected — Waiting for status to be reported`, which keeps the PR blocked.
 2. The maintainer clicks **Enable Auto Merge**, _or_ a reviewer with write access submits an **Approve** review. The action enters polling mode and watches every other check on the PR.
-3. The action polls every other check on the PR, applying any `ignore-checks` filters.
+3. The action polls every other check on the PR, applying any `ignore-checks` / `dedup-checks` rules.
 4. After polling, the action writes the aggregated verdict (`state: success` or `failure`) as a commit status on the head SHA, keyed by the configured `context`. GitHub's required-check evaluation looks up the same `(SHA, context)` pair, so the verdict turns the required check green or red immediately.
 5. GitHub's native auto-merge fires when the required check turns green.
 
@@ -81,11 +81,11 @@ sequenceDiagram
 ```
 
 1. The PR is opened (or pushed to). The workflow always triggers. GitHub Actions auto-creates a check_run named after the gate job (e.g. `automerge-gate/all-passed`) — that check_run is the required-check signal.
-2. The action polls every other check on the PR, applying any `ignore-checks` filters.
+2. The action polls every other check on the PR, applying any `ignore-checks` / `dedup-checks` rules.
 3. After polling, the action exits 0 (success) or non-zero (failure). The job's check_run conclusion follows the exit code, and GitHub treats it as the required check's verdict.
 4. GitHub's native auto-merge fires when the required check turns green.
 
-The action does not write its own check_run in this mode (the JOB's auto-created one is the gate). Read-only `checks: read` permission is sufficient; add `actions: read` if `ignore-checks` uses a `workflow` rule (the action resolves run-to-workflow paths via the Actions API).
+The action does not write its own check_run in this mode (the JOB's auto-created one is the gate). Read-only `checks: read` permission is sufficient; add `actions: read` if `ignore-checks` uses a `workflow` rule or `dedup-checks` is set (the action resolves run-to-workflow paths via the Actions API).
 
 Note: GitHub rulesets only support AND across required checks (no OR / conditional logic), so this action is the place where "all of these checks across workflows must pass" is expressed as a single check.
 
@@ -100,13 +100,13 @@ Choose based on whether your repository accepts external fork PRs.
 - Private mode (cost-optimized) — internal-only repos that do not receive external fork PRs. The action writes the aggregated verdict as a commit status via the legacy Commit Status API. PRs without merge intent skip polling entirely so runner minutes are saved.
 - Public mode (fork-aware) — repos that accept fork PRs. `GITHUB_TOKEN` is read-only on fork PRs, so the gate signal is the gate job's own check_run conclusion. The job runs on every triggering event and always polls.
 
-|                               | private                            | public                 |
-| ----------------------------- | ---------------------------------- | ---------------------- |
-| `pull_request_review` trigger | yes                                | no                     |
-| Job `name:`                   | (default)                          | matches required check |
-| Permissions                   | `statuses: write` + `checks: read` (+ `actions: read` for `workflow` rules) | `checks: read` (+ `actions: read` for `workflow` rules) |
-| API write of aggregate        | yes (commit status)                | no (job exit code)     |
-| Skip on no merge intent       | yes (saves runner minutes)         | no (always polls)      |
+|                               | private                                                                                       | public                                                                    |
+| ----------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `pull_request_review` trigger | yes                                                                                           | no                                                                        |
+| Job `name:`                   | (default)                                                                                     | matches required check                                                    |
+| Permissions                   | `statuses: write` + `checks: read` (+ `actions: read` for `workflow` rules or `dedup-checks`) | `checks: read` (+ `actions: read` for `workflow` rules or `dedup-checks`) |
+| API write of aggregate        | yes (commit status)                                                                           | no (job exit code)                                                        |
+| Skip on no merge intent       | yes (saves runner minutes)                                                                    | no (always polls)                                                         |
 
 ### Step 2: Add the workflow file
 
@@ -205,13 +205,14 @@ Open Settings → General → Pull Requests and tick **Allow auto-merge**. Witho
 
 ## Inputs
 
-| name                    | required | default                     | description                                                                                                                                                                                                                                                                                                          |
-| ----------------------- | -------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gate-mode`             | **yes**  | (none)                      | `private` / `public`. `private` = action writes the aggregated commit status via the legacy Commit Status API (token needs `statuses: write` + `checks: read`). `public` = gate signal is the JOB's own check_run conclusion; the job's `name:` must match the required-check context (token can be `checks: read`). Either mode additionally needs `actions: read` when `ignore-checks` contains a `workflow` rule. |
-| `context`               | no       | `automerge-gate/all-passed` | Aggregated commit status context. **`gate-mode: private` only** — must match the required check in your ruleset. Ignored when `gate-mode: public` (the job name is the signal).                                                                                                                                      |
-| `poll-interval-seconds` | no       | `30`                        | How often to re-fetch check status                                                                                                                                                                                                                                                                                   |
-| `ignore-checks`         | no       | `[]`                        | JSONC array of rules to exclude check_runs from aggregation. Each rule is `{ app?, workflow?, name? }`; fields are AND-evaluated and every field is a glob (`*` / `?`). See [Examples](#examples).                                                                                                                   |
-| `token`                 | no       | `${{ github.token }}`       | GitHub token used to read checks and (when permitted) write the aggregated commit status                                                                                                                                                                                                                             |
+| name                    | required | default                     | description                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------- | -------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gate-mode`             | **yes**  | (none)                      | `private` / `public`. `private` = action writes the aggregated commit status via the legacy Commit Status API (token needs `statuses: write` + `checks: read`). `public` = gate signal is the JOB's own check_run conclusion; the job's `name:` must match the required-check context (token can be `checks: read`). Either mode additionally needs `actions: read` when `ignore-checks` contains a `workflow` rule or `dedup-checks` is set. |
+| `context`               | no       | `automerge-gate/all-passed` | Aggregated commit status context. **`gate-mode: private` only** — must match the required check in your ruleset. Ignored when `gate-mode: public` (the job name is the signal).                                                                                                                                                                                                                                                               |
+| `poll-interval-seconds` | no       | `30`                        | How often to re-fetch check status                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `ignore-checks`         | no       | `[]`                        | JSONC array of rules to exclude check_runs from aggregation. Each rule is `{ app?, workflow?, name? }`; fields are AND-evaluated and every field is a glob (`*` / `?`). See [Examples](#examples).                                                                                                                                                                                                                                            |
+| `dedup-checks`          | no       | `[]`                        | JSONC array of rules (same schema as `ignore-checks`; every rule must set `workflow` or `app`) selecting check_runs to deduplicate to the latest run per (app, workflow file, name). Use for workflows with `cancel-in-progress`, whose superseded cancelled runs would otherwise fail the gate. See [Examples](#examples).                                                                                                                   |
+| `token`                 | no       | `${{ github.token }}`       | GitHub token used to read checks and (when permitted) write the aggregated commit status                                                                                                                                                                                                                                                                                                                                                      |
 
 There is **no `timeout-seconds` input on purpose** — timeout is delegated entirely to the job's `timeout-minutes` so there's a single source of truth. See the IMPORTANT note in the Usage section above.
 
@@ -221,11 +222,11 @@ There is **no `timeout-seconds` input on purpose** — timeout is delegated enti
 
 `ignore-checks` is a JSONC array of rules. Each rule is an object with optional fields:
 
-| field      | matches against                             | notes                                                                                                                                                                                       |
-| ---------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app`      | The originating GitHub App's slug           | Internally the action reads the slug from the check_run's parent check_suite. See [Discovering what to ignore](#discovering-what-to-ignore) below for the inspection command.               |
-| `workflow` | Basename of the workflow file               | GitHub Actions only; third-party Checks (no workflow file) never match a rule with `workflow` set. **Requires the workflow's token to have `actions: read` permission** — the action resolves each run's workflow path via the Actions API, and without that scope the lookup returns `null` so the rule never matches. |
-| `name`     | `check_run.name`                            | This is `jobs.<key>.name` (or `jobs.<key>` if `name:` is omitted), **not** the `<workflow> / <job>` string the UI shows.                                                                    |
+| field      | matches against                   | notes                                                                                                                                                                                                                                                                                                                   |
+| ---------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app`      | The originating GitHub App's slug | Internally the action reads the slug from the check_run's parent check_suite. See [Discovering what to ignore](#discovering-what-to-ignore) below for the inspection command.                                                                                                                                           |
+| `workflow` | Basename of the workflow file     | GitHub Actions only; third-party Checks (no workflow file) never match a rule with `workflow` set. **Requires the workflow's token to have `actions: read` permission** — the action resolves each run's workflow path via the Actions API, and without that scope the lookup returns `null` so the rule never matches. |
+| `name`     | `check_run.name`                  | This is `jobs.<key>.name` (or `jobs.<key>` if `name:` is omitted), **not** the `<workflow> / <job>` string the UI shows.                                                                                                                                                                                                |
 
 Within a single rule, all present fields must match (AND); absent fields are wildcards. Every field is a glob — `*` matches any run of characters, `?` matches one character. Across rules, the action excludes a check_run if **any** rule matches.
 
@@ -303,6 +304,29 @@ with:
 
 The command covers **check_runs only** — the data source `ignore-checks` filters against. It does not include legacy commit statuses (`/commits/{sha}/status`) or PR reviews (`/pulls/{n}/reviews`). automerge-gate likewise reads only check_runs (plus, in `gate-mode: private`, PR reviews for the approval signal); legacy commit statuses are not evaluated. Signals such as Copilot Code Review surface as PR reviews and never appear in `/check-runs`.
 
+#### `dedup-checks`
+
+Workflows that use `concurrency: cancel-in-progress: true` can leave a **cancelled** check_run on the head SHA next to the fresh run that replaced it. Each trigger gets its own check_suite, so a workflow that fires twice for one SHA (`push` + `pull_request` triggers, a re-delivered event, …) reports two same-named check_runs in different suites — one cancelled, one green. The gate evaluates every check_run on the SHA, so the stale cancellation reads as a failure and blocks the merge.
+
+`dedup-checks` opts specific checks into latest-run-wins evaluation. It takes the same JSONC rule schema as [`ignore-checks`](#ignore-checks) (`app` / `workflow` / `name`; AND within a rule, any-rule-matches across rules, glob on every field), with one extra requirement: **every rule must set `workflow` or `app`**. A dedup rule names whose runs it may drop; `name` alone would opt every workflow and app sharing that job name into latest-run-wins, so it is rejected at parse time — use it to narrow a scoped rule instead. Matched check_runs are grouped per **(app, workflow file, check name)** and only the newest run — the highest check_run id, the same ordering GitHub itself applies when duplicate names appear — is evaluated. Superseded duplicates are dropped from aggregation and listed in the run log.
+
+```yaml
+with:
+  dedup-checks: |
+    [
+      { "workflow": "ci.yaml" },                    // all jobs of a cancel-in-progress workflow
+      { "app": "xcode-cloud", "name": "Build *" }   // a third-party app that re-reports
+    ]
+```
+
+Grouping is workflow-aware on purpose: the same job name in two different workflow files is two distinct checks (the monorepo pattern shown in [Discovering what to ignore](#discovering-what-to-ignore)), and a bare `{ "name": "check" }` rule must not collapse them into one. The inspection commands above emit the same `{ app, workflow, name }` rows this input accepts.
+
+Caveats:
+
+- **Requires `actions: read`**, like `workflow` ignore rules: the action resolves each run's workflow file via the Actions API to build the dedup group. Without that scope, GitHub Actions check_runs are silently never deduplicated — conservative on purpose, because grouping without the workflow file could merge genuinely distinct same-named checks.
+- **The latest run wins, whatever its verdict.** If the newest run in a group is itself cancelled or failed, the gate goes red — dedup drops superseded runs, it does not search for a green one.
+- A poll that lands in the window after a run is cancelled but before its replacement registers check_runs still sees only the cancellation; the next trigger re-evaluates. This window exists without dedup too.
+
 #### Tune polling interval for fast CI
 
 ```yaml
@@ -314,13 +338,13 @@ The command covers **check_runs only** — the data source `ignore-checks` filte
 
 ## Outputs
 
-| name                | description                                    |
-| ------------------- | ---------------------------------------------- |
-| `state`             | `success` / `failure` / `skipped`              |
-| `total-checks`      | Number of check_runs observed before filtering |
-| `evaluated-checks`  | Number of check_runs after filters             |
-| `completed-checks`  | Number of completed check_runs after filters   |
-| `polled-iterations` | Number of polling iterations performed         |
+| name                | description                                            |
+| ------------------- | ------------------------------------------------------ |
+| `state`             | `success` / `failure` / `skipped`                      |
+| `total-checks`      | Number of check_runs observed before filtering         |
+| `evaluated-checks`  | Number of check_runs after filters and dedup           |
+| `completed-checks`  | Number of completed check_runs after filters and dedup |
+| `polled-iterations` | Number of polling iterations performed                 |
 
 ## Limitations
 
