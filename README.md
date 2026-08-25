@@ -123,15 +123,14 @@ on:
   pull_request_review:
     types: [submitted]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   gate:
     if: >-
       github.event_name != 'pull_request_review' ||
       github.event.review.state == 'approved'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -146,7 +145,7 @@ jobs:
           context: 'automerge-gate/all-passed'
 ```
 
-The `pull_request_review.state == 'approved'` clause filters out non-Approve review submissions (`commented`, `changes_requested`) at the job level, so the runner doesn't even spin up for those. GitHub's `on:` block can filter activity types but not review state, so the filter has to live in the job's `if:`.
+The `pull_request_review.state == 'approved'` clause filters out non-Approve review submissions (`commented`, `changes_requested`) at the job level, so the runner doesn't even spin up for those. GitHub's `on:` block can filter activity types but not review state, so the filter has to live in the job's `if:`. Keeping `concurrency` on the `gate` job is intentional: a skipped review submission never enters the concurrency group, so it cannot cancel an in-progress gate. Eligible events still cancel older polling jobs for the same PR.
 
 When a `synchronize`, `opened`, or `reopened` event fires without an active merge intent (no Auto Merge enabled, no sticky write-permission Approve), the action exits cleanly without writing a status. The required check stays at GitHub's `Expected` state and merge stays blocked, but no polling burns runner minutes.
 

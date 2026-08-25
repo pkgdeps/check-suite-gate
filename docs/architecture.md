@@ -124,8 +124,10 @@ See lessons 2026-05-06 §1 and §2 for why some values are reserved.
 
 This action uses `${{ github.workflow }}-${{ github.ref }}` as the concurrency
 group with `cancel-in-progress: true` — the same pattern merge-gatekeeper uses.
-The v4 commit-status mechanism is unaffected by cancellation because the status
-is keyed by `(SHA, context)`.
+Private-mode workflows attach the group to the `gate` job, not the whole
+workflow, so non-Approve review submissions skipped by the job-level `if` cannot
+cancel an active polling job. The v4 commit-status mechanism is unaffected by
+cancellation because the status is keyed by `(SHA, context)`.
 
 ### Structural pitfalls
 

@@ -68,14 +68,14 @@ on:
     types: [opened, synchronize, reopened, auto_merge_enabled]
   pull_request_review:
     types: [submitted]
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   gate:
     if: >-
       github.event_name != 'pull_request_review' ||
       github.event.review.state == 'approved'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 20 # was merge-gatekeeper's `timeout: 1200`
     permissions:
@@ -94,6 +94,8 @@ jobs:
               { "name": "optional-job" }
             ]
 ```
+
+Keep `concurrency` on the `gate` job rather than at the workflow level. A non-Approve review submission is skipped by the job-level `if`; it must not enter the concurrency group first and cancel an active polling job.
 
 Input mapping:
 
