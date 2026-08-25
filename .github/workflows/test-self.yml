@@ -12,15 +12,14 @@ permissions:
   pull-requests: read
   actions: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   gate:
     if: >-
       github.event_name != 'pull_request_review'
       || github.event.review.state == 'approved'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
