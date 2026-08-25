@@ -34,6 +34,51 @@ const captureStatusPosts = (
   )
 }
 
+// The cancel-in-progress shape: one workflow file, two check_suites on
+// the same head SHA, each carrying a same-named `build` run — the older
+// one (lower id) cancelled, the newer one green. Both runs resolve to
+// the SAME workflow path via the actions API.
+const useCancelInProgressDuplicate = (workflowLookups: number[]): void => {
+  server.use(
+    http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () =>
+      HttpResponse.json({
+        total_count: 2,
+        check_suites: [
+          { id: 100, app: { slug: 'github-actions' }, status: 'completed' },
+          { id: 200, app: { slug: 'github-actions' }, status: 'completed' }
+        ]
+      })
+    ),
+    http.get(
+      `${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`,
+      ({ params }) => {
+        const suiteId = Number.parseInt(params.id as string, 10)
+        const run =
+          suiteId === 100
+            ? {
+                id: 1,
+                name: 'build',
+                status: 'completed',
+                conclusion: 'cancelled',
+                details_url: 'https://github.com/o/r/actions/runs/1001/job/2001'
+              }
+            : {
+                id: 2,
+                name: 'build',
+                status: 'completed',
+                conclusion: 'success',
+                details_url: 'https://github.com/o/r/actions/runs/1002/job/2002'
+              }
+        return HttpResponse.json({ total_count: 1, check_runs: [run] })
+      }
+    ),
+    http.get(`${BASE}/repos/:owner/:repo/actions/runs/:id`, ({ params }) => {
+      workflowLookups.push(Number.parseInt(params.id as string, 10))
+      return HttpResponse.json({ path: '.github/workflows/ci.yaml' })
+    })
+  )
+}
+
 describe('runPrivate', () => {
   beforeEach(() => {
     stubCoreSummary()
@@ -246,6 +291,82 @@ describe('runPrivate', () => {
       state: 'success',
       context: 'automerge-gate/all-passed'
     })
+  })
+
+  it('dedup-checks keeps only the latest cross-suite duplicate → success', async () => {
+    // Exercises the full wiring: (a) an app-scoped dedup rule with no
+    // `workflow` field still triggers workflow-path pre-resolution (the
+    // lookup assertion below), and (b) dedupToLatest drops the superseded
+    // cancelled run before aggregation, flipping the verdict to success.
+    const workflowLookups: number[] = []
+    useCancelInProgressDuplicate(workflowLookups)
+
+    const postBodies: Array<Record<string, unknown>> = []
+    const postShas: string[] = []
+    captureStatusPosts(postBodies, postShas)
+
+    const deps = buildDeps({
+      eventName: 'pull_request',
+      action: 'auto_merge_enabled',
+      pr: {
+        number: 1,
+        head: { sha: 'sha-head' },
+        auto_merge: { enabled_by: { login: 'maintainer' } }
+      }
+    })
+
+    await runPrivate(
+      deps,
+      buildInputs({ dedupChecks: [{ app: 'github-actions' }] })
+    )
+
+    // Pre-resolution fired for both runs even without a `workflow` rule.
+    expect(workflowLookups.sort()).toEqual([1001, 1002])
+    expect(postBodies).toHaveLength(1)
+    expect(postBodies[0]).toMatchObject({
+      state: 'success',
+      context: 'automerge-gate/all-passed'
+    })
+  })
+
+  it('without dedup-checks the superseded cancelled run fails the gate', async () => {
+    // Regression guard for the default behavior: every check_run counts,
+    // so the stale cancellation aggregates to failure.
+    const setFailedSpy = vi
+      .spyOn(core, 'setFailed')
+      .mockImplementation(() => {})
+    const workflowLookups: number[] = []
+    useCancelInProgressDuplicate(workflowLookups)
+
+    const postBodies: Array<Record<string, unknown>> = []
+    const postShas: string[] = []
+    captureStatusPosts(postBodies, postShas)
+
+    const deps = buildDeps({
+      eventName: 'pull_request',
+      action: 'auto_merge_enabled',
+      pr: {
+        number: 1,
+        head: { sha: 'sha-head' },
+        auto_merge: { enabled_by: { login: 'maintainer' } }
+      }
+    })
+
+    // A name-only ignore rule must NOT force workflow-path resolution —
+    // only `workflow` ignore rules and dedup-checks pay for the actions
+    // API round (asserted on workflowLookups below).
+    await runPrivate(
+      deps,
+      buildInputs({ ignoreChecks: [{ name: 'unrelated' }] })
+    )
+
+    expect(workflowLookups).toEqual([])
+    expect(postBodies).toHaveLength(1)
+    expect(postBodies[0]).toMatchObject({
+      state: 'failure',
+      context: 'automerge-gate/all-passed'
+    })
+    expect(setFailedSpy).toHaveBeenCalledTimes(1)
   })
 
   it('drive-by Approve (read permission) → no POST', async () => {

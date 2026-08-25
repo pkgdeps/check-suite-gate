@@ -49,6 +49,7 @@ export const buildInputs = (
 ): ParsedInputs => ({
   context: 'automerge-gate/all-passed',
   ignoreChecks: [],
+  dedupChecks: [],
   gateMode: 'private',
   token: 'test-token',
   pollIntervalSeconds: 1,

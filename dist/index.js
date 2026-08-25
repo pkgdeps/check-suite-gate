@@ -24802,10 +24802,10 @@ var parseGateMode = (raw) => {
   );
 };
 var ALLOWED_FIELDS = /* @__PURE__ */ new Set(["app", "workflow", "name"]);
-var validateRule = (raw, index) => {
+var validateRule = (raw, index, inputName) => {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error(
-      `input \`ignore-checks\`: entry [${index}] must be an object, got ${Array.isArray(raw) ? "array" : typeof raw}`
+      `input \`${inputName}\`: entry [${index}] must be an object, got ${Array.isArray(raw) ? "array" : typeof raw}`
     );
   }
   const obj = raw;
@@ -24813,24 +24813,24 @@ var validateRule = (raw, index) => {
   for (const [key, value] of Object.entries(obj)) {
     if (!ALLOWED_FIELDS.has(key)) {
       throw new Error(
-        `input \`ignore-checks\`: entry [${index}] has unknown field "${key}" (allowed: app, workflow, name)`
+        `input \`${inputName}\`: entry [${index}] has unknown field "${key}" (allowed: app, workflow, name)`
       );
     }
     if (typeof value !== "string" || value.length === 0) {
       throw new Error(
-        `input \`ignore-checks\`: entry [${index}].${key} must be a non-empty string`
+        `input \`${inputName}\`: entry [${index}].${key} must be a non-empty string`
       );
     }
     rule[key] = value;
   }
   if (Object.keys(rule).length === 0) {
     throw new Error(
-      `input \`ignore-checks\`: entry [${index}] is an empty object \u2014 at least one of app / workflow / name must be set`
+      `input \`${inputName}\`: entry [${index}] is an empty object \u2014 at least one of app / workflow / name must be set`
     );
   }
   return rule;
 };
-var parseIgnoreChecks = (raw) => {
+var parseRuleList = (raw, inputName) => {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return [];
   const errors = [];
@@ -24843,14 +24843,25 @@ var parseIgnoreChecks = (raw) => {
       const snippet = trimmed.slice(e.offset, e.offset + Math.max(e.length, 1)).replace(/\n/g, "\\n");
       return `${printParseErrorCode(e.error)} at offset ${e.offset} ("${snippet}")`;
     }).join("; ");
-    throw new Error(`input \`ignore-checks\`: JSONC parse failed: ${summary3}`);
+    throw new Error(`input \`${inputName}\`: JSONC parse failed: ${summary3}`);
   }
   if (!Array.isArray(parsed)) {
     throw new Error(
-      `input \`ignore-checks\`: top-level value must be an array (got ${parsed === null ? "null" : typeof parsed})`
+      `input \`${inputName}\`: top-level value must be an array (got ${parsed === null ? "null" : typeof parsed})`
     );
   }
-  return parsed.map((entry, i) => validateRule(entry, i));
+  return parsed.map((entry, i) => validateRule(entry, i, inputName));
+};
+var parseDedupChecks = (raw) => {
+  const rules = parseRuleList(raw, "dedup-checks");
+  for (const [index, rule] of rules.entries()) {
+    if (rule.workflow === void 0 && rule.app === void 0) {
+      throw new Error(
+        `input \`dedup-checks\`: entry [${index}] must set \`workflow\` or \`app\` \u2014 \`name\` alone would opt every workflow/app with that job name into latest-run-wins`
+      );
+    }
+  }
+  return rules;
 };
 var parseInputs = (raw) => {
   if (raw.token.trim().length === 0) {
@@ -24858,7 +24869,8 @@ var parseInputs = (raw) => {
   }
   return {
     context: raw.context,
-    ignoreChecks: parseIgnoreChecks(raw.ignoreChecks),
+    ignoreChecks: parseRuleList(raw.ignoreChecks, "ignore-checks"),
+    dedupChecks: parseDedupChecks(raw.dedupChecks),
     gateMode: parseGateMode(raw.gateMode),
     token: raw.token,
     pollIntervalSeconds: parsePositiveInt(
@@ -24966,8 +24978,9 @@ var ruleMatches = (rule, run2) => {
   }
   return true;
 };
+var matchesAnyRule = (rules, run2) => rules.some((rule) => ruleMatches(rule, run2));
 var hasWorkflowRule = (rules) => rules.some((r) => r.workflow !== void 0);
-var applyFilters = (runs, ignoreChecks) => runs.filter((run2) => !ignoreChecks.some((rule) => ruleMatches(rule, run2)));
+var applyFilters = (runs, ignoreChecks) => runs.filter((run2) => !matchesAnyRule(ignoreChecks, run2));
 
 // src/self-exclusion.ts
 var RUN_ID_REGEX = /\/actions\/runs\/(\d+)\/job\/\d+/;
@@ -25024,6 +25037,43 @@ var resolveWorkflowPaths = async (runs, lookupWorkflowPath) => {
     if (runId === null) return { ...r, workflow_path: null };
     return { ...r, workflow_path: pathByRunId.get(runId) ?? null };
   });
+};
+
+// src/dedup.ts
+var groupKey = (run2) => JSON.stringify([run2.app.slug, run2.workflow_path ?? null, run2.name]);
+var isPoolEligible = (run2, rules) => {
+  if (!matchesAnyRule(rules, run2)) return false;
+  if (run2.app.slug === "github-actions") {
+    return typeof run2.workflow_path === "string";
+  }
+  return true;
+};
+var dedupToLatest = (runs, rules) => {
+  if (rules.length === 0) return { kept: runs, dropped: [] };
+  const winners = /* @__PURE__ */ new Map();
+  for (const run2 of runs) {
+    if (!isPoolEligible(run2, rules)) continue;
+    const key = groupKey(run2);
+    const current = winners.get(key);
+    if (current === void 0 || run2.id > current.id) {
+      winners.set(key, run2);
+    }
+  }
+  const kept = [];
+  const dropped = [];
+  for (const run2 of runs) {
+    if (!isPoolEligible(run2, rules)) {
+      kept.push(run2);
+      continue;
+    }
+    const winner = winners.get(groupKey(run2));
+    if (winner === void 0 || winner === run2) {
+      kept.push(run2);
+    } else {
+      dropped.push({ run: run2, supersededBy: winner });
+    }
+  }
+  return { kept, dropped };
 };
 
 // src/conclusion.ts
@@ -25373,9 +25423,10 @@ var runPrivate = async (deps, inputs) => {
   let lastEvaluated = 0;
   let lastCompleted = 0;
   let lastRuns = [];
+  let lastDropped = [];
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef);
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo);
-  const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
+  const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks) || inputs.dedupChecks.length > 0;
   const fetchRuns = async () => {
     try {
       const allRuns = await fetchAllCheckRuns(octokit, owner, repo, sha);
@@ -25387,10 +25438,12 @@ var runPrivate = async (deps, inputs) => {
         currentWorkflowPath,
         lookupWorkflowPath
       );
-      lastEvaluated = afterSelf.length;
-      lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
-      lastRuns = afterSelf;
-      return afterSelf;
+      const { kept, dropped } = dedupToLatest(afterSelf, inputs.dedupChecks);
+      lastDropped = dropped;
+      lastEvaluated = kept.length;
+      lastCompleted = kept.filter((r) => r.status === "completed").length;
+      lastRuns = kept;
+      return kept;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       core3.warning(`API fetch failed during polling (will retry): ${message}`);
@@ -25416,6 +25469,11 @@ var runPrivate = async (deps, inputs) => {
   });
   const formatted = formatCheckResults(lastRuns);
   for (const line of formatted.logLines) core3.info(line);
+  for (const d of lastDropped) {
+    core3.info(
+      `dedup: superseded \`${d.run.name}\` (id ${d.run.id}, ${d.run.conclusion ?? d.run.status}) by newer run id ${d.supersededBy.id}`
+    );
+  }
   if (formatted.pendingCount > 0) {
     core3.warning(`pending check(s) at result time: ${formatted.pendingCount}`);
   }
@@ -25468,13 +25526,14 @@ var runPublic = async (deps, inputs) => {
   let lastEvaluated = 0;
   let lastCompleted = 0;
   let lastRuns = [];
+  let lastDropped = [];
   const currentWorkflowPath = parseCurrentWorkflowPath(env.workflowRef);
   const lookupWorkflowPath = createWorkflowPathLookup(
     octokit,
     context2.owner,
     context2.repo
   );
-  const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks);
+  const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks) || inputs.dedupChecks.length > 0;
   const fetchRuns = async () => {
     try {
       const all = await fetchAllCheckRuns(
@@ -25491,10 +25550,12 @@ var runPublic = async (deps, inputs) => {
         currentWorkflowPath,
         lookupWorkflowPath
       );
-      lastEvaluated = afterSelf.length;
-      lastCompleted = afterSelf.filter((r) => r.status === "completed").length;
-      lastRuns = afterSelf;
-      return afterSelf;
+      const { kept, dropped } = dedupToLatest(afterSelf, inputs.dedupChecks);
+      lastDropped = dropped;
+      lastEvaluated = kept.length;
+      lastCompleted = kept.filter((r) => r.status === "completed").length;
+      lastRuns = kept;
+      return kept;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       core4.warning(`API fetch failed during polling (will retry): ${message}`);
@@ -25520,6 +25581,11 @@ var runPublic = async (deps, inputs) => {
   });
   const formatted = formatCheckResults(lastRuns);
   for (const line of formatted.logLines) core4.info(line);
+  for (const d of lastDropped) {
+    core4.info(
+      `dedup: superseded \`${d.run.name}\` (id ${d.run.id}, ${d.run.conclusion ?? d.run.status}) by newer run id ${d.supersededBy.id}`
+    );
+  }
   if (formatted.pendingCount > 0) {
     core4.warning(`pending check(s) at result time: ${formatted.pendingCount}`);
   }
@@ -25595,6 +25661,7 @@ var run = async () => {
   const inputs = parseInputs({
     context: core5.getInput("context"),
     ignoreChecks: core5.getInput("ignore-checks"),
+    dedupChecks: core5.getInput("dedup-checks"),
     gateMode: core5.getInput("gate-mode"),
     token: core5.getInput("token"),
     pollIntervalSeconds: core5.getInput("poll-interval-seconds")

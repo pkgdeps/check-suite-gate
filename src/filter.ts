@@ -1,12 +1,13 @@
 import path from 'node:path'
-import type { IgnoreRule } from './inputs.js'
+import type { CheckRule } from './inputs.js'
 
 // Aggregated check_run shape used across the action.
 // Carries the suite-level app.slug so filters can decide based on the
 // originating GitHub App (e.g. "dependabot", "github-actions").
 // `workflow_path` is the path of the workflow file (e.g.
-// ".github/workflows/ci-go.yaml"), populated lazily when any IgnoreRule
-// declares a `workflow` field. `undefined` means "not resolved",
+// ".github/workflows/ci-go.yaml"), populated lazily when any CheckRule
+// declares a `workflow` field or `dedup-checks` is set. `undefined`
+// means "not resolved",
 // `null` means "resolved but not applicable" (e.g. third-party app).
 export type AggregatedCheckRun = {
   id: number
@@ -40,12 +41,12 @@ const globMatches = (value: string, pattern: string): boolean => {
 const workflowBasename = (workflowPath: string): string =>
   path.posix.basename(workflowPath)
 
-// True if a single IgnoreRule matches a check_run. All present fields
+// True if a single CheckRule matches a check_run. All present fields
 // must match (AND); absent fields are wildcards. Rules with a `workflow`
 // field never match runs without a resolved `workflow_path` — covers
 // third-party Checks (null) and the "caller forgot to pre-resolve"
 // case (undefined), keeping such rules conservative-by-default.
-const ruleMatches = (rule: IgnoreRule, run: AggregatedCheckRun): boolean => {
+const ruleMatches = (rule: CheckRule, run: AggregatedCheckRun): boolean => {
   if (rule.app !== undefined && !globMatches(run.app.slug, rule.app)) {
     return false
   }
@@ -63,14 +64,22 @@ const ruleMatches = (rule: IgnoreRule, run: AggregatedCheckRun): boolean => {
   return true
 }
 
+// True if a check_run matches any rule in the list (OR across rules;
+// AND within a rule, via ruleMatches). Shared by ignore filtering and
+// dedup pooling so both inputs get identical matching semantics.
+export const matchesAnyRule = (
+  rules: CheckRule[],
+  run: AggregatedCheckRun
+): boolean => rules.some((rule) => ruleMatches(rule, run))
+
 // True if any rule in the list references the `workflow` field.
 // Used by the gate to decide whether to pre-resolve workflow paths
 // (an extra round of API calls) before applying filters.
-export const hasWorkflowRule = (rules: IgnoreRule[]): boolean =>
+export const hasWorkflowRule = (rules: CheckRule[]): boolean =>
   rules.some((r) => r.workflow !== undefined)
 
 export const applyFilters = (
   runs: AggregatedCheckRun[],
-  ignoreChecks: IgnoreRule[]
+  ignoreChecks: CheckRule[]
 ): AggregatedCheckRun[] =>
-  runs.filter((run) => !ignoreChecks.some((rule) => ruleMatches(rule, run)))
+  runs.filter((run) => !matchesAnyRule(ignoreChecks, run))

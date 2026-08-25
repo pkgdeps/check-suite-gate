@@ -1,13 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import {
-  parseInputs,
-  parseIgnoreChecks,
-  type RawInputs
-} from '../src/inputs.js'
+import { parseInputs, parseRuleList, type RawInputs } from '../src/inputs.js'
 
 const raw = (override: Partial<RawInputs> = {}): RawInputs => ({
   context: 'automerge-gate/all-passed',
   ignoreChecks: '[]',
+  dedupChecks: '[]',
   gateMode: 'private',
   token: 'tok',
   pollIntervalSeconds: '30',
@@ -23,6 +20,60 @@ describe('parseInputs', () => {
   it('treats whitespace-only ignore-checks as an empty list', () => {
     const result = parseInputs(raw({ ignoreChecks: '   \n  ' }))
     expect(result.ignoreChecks).toEqual([])
+  })
+
+  it('parses dedup-checks with the same rule schema as ignore-checks', () => {
+    const result = parseInputs(
+      raw({
+        dedupChecks:
+          '[{"workflow":"ci.yaml"},{"app":"xcode-cloud","name":"Build *"}]'
+      })
+    )
+    expect(result.dedupChecks).toEqual([
+      { workflow: 'ci.yaml' },
+      { app: 'xcode-cloud', name: 'Build *' }
+    ])
+  })
+
+  it('treats empty and whitespace-only dedup-checks as an empty list', () => {
+    expect(parseInputs(raw({ dedupChecks: '' })).dedupChecks).toEqual([])
+    expect(parseInputs(raw({ dedupChecks: '  \n ' })).dedupChecks).toEqual([])
+  })
+
+  it('rejects a dedup-checks rule with neither workflow nor app', () => {
+    // Stricter than ignore-checks: a dedup rule names whose runs it may
+    // drop, and `name` alone does not.
+    expect(() =>
+      parseInputs(raw({ dedupChecks: '[{"name":"build"}]' }))
+    ).toThrow(/entry \[0\] must set `workflow` or `app`/)
+    expect(() =>
+      parseInputs(
+        raw({ dedupChecks: '[{"workflow":"ci.yaml"},{"name":"build-*"}]' })
+      )
+    ).toThrow(/entry \[1\] must set `workflow` or `app`/)
+    // ignore-checks keeps accepting name-only rules.
+    expect(
+      parseInputs(raw({ ignoreChecks: '[{"name":"build"}]' })).ignoreChecks
+    ).toEqual([{ name: 'build' }])
+  })
+
+  it('accepts workflow-only, app-only, and scoped-plus-name dedup rules', () => {
+    const result = parseInputs(
+      raw({
+        dedupChecks:
+          '[{"workflow":"ci.yaml"},{"app":"github-actions"},{"workflow":"ci.yaml","name":"build"}]'
+      })
+    )
+    expect(result.dedupChecks).toHaveLength(3)
+  })
+
+  it('attributes dedup-checks validation errors to the dedup-checks input', () => {
+    expect(() => parseInputs(raw({ dedupChecks: '[{}]' }))).toThrow(
+      /input `dedup-checks`/
+    )
+    expect(() => parseInputs(raw({ dedupChecks: '{"name":"build"}' }))).toThrow(
+      /input `dedup-checks`/
+    )
   })
 
   it('throws when token is empty or whitespace', () => {
@@ -64,18 +115,19 @@ describe('parseInputs', () => {
   })
 })
 
-describe('parseIgnoreChecks', () => {
+describe('parseRuleList', () => {
+  const parse = (input: string): ReturnType<typeof parseRuleList> =>
+    parseRuleList(input, 'ignore-checks')
+
   it('parses a strict JSON array of rules', () => {
     expect(
-      parseIgnoreChecks(
-        '[{"app":"dependabot"},{"workflow":"ci.yaml","name":"lint"}]'
-      )
+      parse('[{"app":"dependabot"},{"workflow":"ci.yaml","name":"lint"}]')
     ).toEqual([{ app: 'dependabot' }, { workflow: 'ci.yaml', name: 'lint' }])
   })
 
   it('accepts trailing commas (JSONC)', () => {
     expect(
-      parseIgnoreChecks(`[
+      parse(`[
         { "app": "dependabot" },
         { "name": "optional-*" },
       ]`)
@@ -84,7 +136,7 @@ describe('parseIgnoreChecks', () => {
 
   it('accepts line and block comments (JSONC)', () => {
     expect(
-      parseIgnoreChecks(`[
+      parse(`[
         // ignore all dependabot checks
         { "app": "dependabot" },
         /* flaky job, revisit before v6 */
@@ -94,55 +146,62 @@ describe('parseIgnoreChecks', () => {
   })
 
   it('treats empty string as an empty array', () => {
-    expect(parseIgnoreChecks('')).toEqual([])
-    expect(parseIgnoreChecks('   ')).toEqual([])
+    expect(parse('')).toEqual([])
+    expect(parse('   ')).toEqual([])
   })
 
   it('rejects a non-array top-level value', () => {
-    expect(() => parseIgnoreChecks('{"app":"dependabot"}')).toThrow(
-      /must be an array/
-    )
-    expect(() => parseIgnoreChecks('"dependabot"')).toThrow(/must be an array/)
-    expect(() => parseIgnoreChecks('null')).toThrow(/must be an array/)
+    expect(() => parse('{"app":"dependabot"}')).toThrow(/must be an array/)
+    expect(() => parse('"dependabot"')).toThrow(/must be an array/)
+    expect(() => parse('null')).toThrow(/must be an array/)
   })
 
   it('rejects an entry that is not an object', () => {
-    expect(() => parseIgnoreChecks('["dependabot"]')).toThrow(
+    expect(() => parse('["dependabot"]')).toThrow(
       /entry \[0\] must be an object/
     )
-    expect(() => parseIgnoreChecks('[[]]')).toThrow(/must be an object/)
+    expect(() => parse('[[]]')).toThrow(/must be an object/)
   })
 
   it('rejects an entry with an unknown field', () => {
-    expect(() => parseIgnoreChecks('[{"conclusion":"failure"}]')).toThrow(
+    expect(() => parse('[{"conclusion":"failure"}]')).toThrow(
       /unknown field "conclusion"/
     )
   })
 
   it('rejects an entry whose field value is not a non-empty string', () => {
-    expect(() => parseIgnoreChecks('[{"app":123}]')).toThrow(
+    expect(() => parse('[{"app":123}]')).toThrow(
       /\.app must be a non-empty string/
     )
-    expect(() => parseIgnoreChecks('[{"app":""}]')).toThrow(
+    expect(() => parse('[{"app":""}]')).toThrow(
       /\.app must be a non-empty string/
     )
   })
 
   it('rejects an entry with no fields set', () => {
-    expect(() => parseIgnoreChecks('[{}]')).toThrow(/empty object/)
+    expect(() => parse('[{}]')).toThrow(/empty object/)
   })
 
   it('rejects unparseable JSONC', () => {
-    expect(() => parseIgnoreChecks('not json')).toThrow(/JSONC parse failed/)
-    expect(() => parseIgnoreChecks('[{"app":')).toThrow(/JSONC parse failed/)
+    expect(() => parse('not json')).toThrow(/JSONC parse failed/)
+    expect(() => parse('[{"app":')).toThrow(/JSONC parse failed/)
   })
 
   it('error messages name the JSONC fault and quote the offending fragment', () => {
     // jsonc-parser exposes numeric error codes (e.g. 4 = "ValueExpected").
     // The error surfaced to the user must name the fault and include the
     // bad fragment, not just expose the raw code number.
-    expect(() => parseIgnoreChecks('[{"app":}]')).toThrow(/ValueExpected/)
-    expect(() => parseIgnoreChecks('[{"app":}]')).toThrow(/at offset \d+/)
-    expect(() => parseIgnoreChecks('[{"app":}]')).not.toThrow(/error=\d+/)
+    expect(() => parse('[{"app":}]')).toThrow(/ValueExpected/)
+    expect(() => parse('[{"app":}]')).toThrow(/at offset \d+/)
+    expect(() => parse('[{"app":}]')).not.toThrow(/error=\d+/)
+  })
+
+  it('attributes error messages to the input it was given', () => {
+    expect(() => parseRuleList('[{}]', 'ignore-checks')).toThrow(
+      /input `ignore-checks`/
+    )
+    expect(() => parseRuleList('[{}]', 'dedup-checks')).toThrow(
+      /input `dedup-checks`/
+    )
   })
 })

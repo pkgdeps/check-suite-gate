@@ -8,6 +8,7 @@ import {
   parseCurrentWorkflowPath,
   resolveWorkflowPaths
 } from './self-exclusion.js'
+import { dedupToLatest, type DedupDrop } from './dedup.js'
 import { pollUntilComplete } from './polling.js'
 import { buildTargetUrl, writeCommitStatus } from './commit-status.js'
 import { determineMode, isHeadShaAction } from './mode.js'
@@ -128,10 +129,14 @@ export const runPrivate = async (
   let lastEvaluated = 0
   let lastCompleted = 0
   let lastRuns: AggregatedCheckRun[] = []
+  let lastDropped: DedupDrop[] = []
 
   const currentWorkflowPath = parseCurrentWorkflowPath(workflowRef)
   const lookupWorkflowPath = createWorkflowPathLookup(octokit, owner, repo)
-  const needsWorkflowPath = hasWorkflowRule(inputs.ignoreChecks)
+  // Dedup grouping keys on the workflow path, so any dedup rule forces
+  // pre-resolution — not just rules with a `workflow` field.
+  const needsWorkflowPath =
+    hasWorkflowRule(inputs.ignoreChecks) || inputs.dedupChecks.length > 0
 
   const fetchRuns = async () => {
     try {
@@ -146,10 +151,12 @@ export const runPrivate = async (
         currentWorkflowPath,
         lookupWorkflowPath
       )
-      lastEvaluated = afterSelf.length
-      lastCompleted = afterSelf.filter((r) => r.status === 'completed').length
-      lastRuns = afterSelf
-      return afterSelf
+      const { kept, dropped } = dedupToLatest(afterSelf, inputs.dedupChecks)
+      lastDropped = dropped
+      lastEvaluated = kept.length
+      lastCompleted = kept.filter((r) => r.status === 'completed').length
+      lastRuns = kept
+      return kept
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       core.warning(`API fetch failed during polling (will retry): ${message}`)
@@ -183,6 +190,11 @@ export const runPrivate = async (
 
   const formatted = formatCheckResults(lastRuns)
   for (const line of formatted.logLines) core.info(line)
+  for (const d of lastDropped) {
+    core.info(
+      `dedup: superseded \`${d.run.name}\` (id ${d.run.id}, ${d.run.conclusion ?? d.run.status}) by newer run id ${d.supersededBy.id}`
+    )
+  }
   if (formatted.pendingCount > 0) {
     core.warning(`pending check(s) at result time: ${formatted.pendingCount}`)
   }

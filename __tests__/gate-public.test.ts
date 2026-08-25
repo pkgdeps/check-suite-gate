@@ -148,6 +148,71 @@ describe('runPublic', () => {
     expect(setFailedSpy).not.toHaveBeenCalled()
   })
 
+  it('dedup-checks keeps only the latest cross-suite duplicate → no setFailed', async () => {
+    // Mirror of the gate-private dedup wiring test: same workflow file,
+    // two suites on one SHA, older `build` run cancelled and the newer
+    // one green. Without the rule the cancellation would aggregate to
+    // failure; with it, only the latest run is evaluated.
+    const setFailedSpy = vi
+      .spyOn(core, 'setFailed')
+      .mockImplementation(() => {})
+    const workflowLookups: number[] = []
+    server.use(
+      http.get(`${BASE}/repos/:owner/:repo/commits/:sha/check-suites`, () =>
+        HttpResponse.json({
+          total_count: 2,
+          check_suites: [
+            { id: 100, app: { slug: 'github-actions' }, status: 'completed' },
+            { id: 200, app: { slug: 'github-actions' }, status: 'completed' }
+          ]
+        })
+      ),
+      http.get(
+        `${BASE}/repos/:owner/:repo/check-suites/:id/check-runs`,
+        ({ params }) => {
+          const suiteId = Number.parseInt(params.id as string, 10)
+          const run =
+            suiteId === 100
+              ? {
+                  id: 1,
+                  name: 'build',
+                  status: 'completed',
+                  conclusion: 'cancelled',
+                  details_url:
+                    'https://github.com/o/r/actions/runs/1001/job/2001'
+                }
+              : {
+                  id: 2,
+                  name: 'build',
+                  status: 'completed',
+                  conclusion: 'success',
+                  details_url:
+                    'https://github.com/o/r/actions/runs/1002/job/2002'
+                }
+          return HttpResponse.json({ total_count: 1, check_runs: [run] })
+        }
+      ),
+      http.get(`${BASE}/repos/:owner/:repo/actions/runs/:id`, ({ params }) => {
+        workflowLookups.push(Number.parseInt(params.id as string, 10))
+        return HttpResponse.json({ path: '.github/workflows/ci.yaml' })
+      })
+    )
+
+    const deps = buildDeps()
+    await runPublic(
+      deps,
+      buildInputs({
+        gateMode: 'public',
+        dedupChecks: [{ app: 'github-actions' }]
+      })
+    )
+
+    // An app-scoped dedup rule (no `workflow` field) still forces
+    // pre-resolution.
+    expect(workflowLookups.sort()).toEqual([1001, 1002])
+    expect(setFailedSpy).not.toHaveBeenCalled()
+  })
+
   it('failing aggregate → core.setFailed is called', async () => {
     const setFailedSpy = vi
       .spyOn(core, 'setFailed')

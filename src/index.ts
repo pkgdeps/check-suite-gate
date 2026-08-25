@@ -57,6 +57,7 @@ const run = async (): Promise<void> => {
   const inputs = parseInputs({
     context: core.getInput('context'),
     ignoreChecks: core.getInput('ignore-checks'),
+    dedupChecks: core.getInput('dedup-checks'),
     gateMode: core.getInput('gate-mode'),
     token: core.getInput('token'),
     pollIntervalSeconds: core.getInput('poll-interval-seconds')

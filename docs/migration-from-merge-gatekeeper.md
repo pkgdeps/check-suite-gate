@@ -10,16 +10,17 @@ For usage details referenced below, see the [README](../README.md).
 
 The two actions share the goal but differ in how the gate fires and what it reads.
 
-|                             | merge-gatekeeper                                | automerge-gate                                                                                       |
-| --------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| When it gates               | every PR push                                   | on merge intent (`private`) or every push (`public`) — see [README modes](../README.md#how-it-works) |
-| Data source                 | check_runs **and** legacy commit statuses       | check_runs **only**                                                                                  |
-| Merge mechanism             | the job's own check is the required check       | GitHub native auto-merge, fired when the required check turns green                                  |
-| `merge_group` (merge queue) | supported                                       | **not supported**                                                                                    |
-| Ignore syntax               | comma-separated list of check names (`ignored`) | JSONC array of `{ app?, workflow?, name? }` glob rules (`ignore-checks`)                             |
-| Poll interval               | `interval` (seconds)                            | `poll-interval-seconds`                                                                              |
-| Timeout                     | `timeout` input (seconds)                       | job `timeout-minutes` (no action input)                                                              |
-| Runtime                     | container action (needs Docker on the runner)   | JavaScript action (no Docker)                                                                        |
+|                                 | merge-gatekeeper                                | automerge-gate                                                                                       |
+| ------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| When it gates                   | every PR push                                   | on merge intent (`private`) or every push (`public`) — see [README modes](../README.md#how-it-works) |
+| Data source                     | check_runs **and** legacy commit statuses       | check_runs **only**                                                                                  |
+| Merge mechanism                 | the job's own check is the required check       | GitHub native auto-merge, fired when the required check turns green                                  |
+| `merge_group` (merge queue)     | supported                                       | **not supported**                                                                                    |
+| Ignore syntax                   | comma-separated list of check names (`ignored`) | JSONC array of `{ app?, workflow?, name? }` glob rules (`ignore-checks`)                             |
+| Duplicate check_runs on one SHA | latest run per check name wins by default       | every check_run is evaluated; latest-run-wins is **opt-in** via `dedup-checks`                       |
+| Poll interval                   | `interval` (seconds)                            | `poll-interval-seconds`                                                                              |
+| Timeout                         | `timeout` input (seconds)                       | job `timeout-minutes` (no action input)                                                              |
+| Runtime                         | container action (needs Docker on the runner)   | JavaScript action (no Docker)                                                                        |
 
 Two of these are migration-blocking if they apply to you:
 
@@ -166,4 +167,5 @@ Substitute the actual job/context names your workflows use.
 
 - **Merge is opt-in (private mode).** merge-gatekeeper gates every PR continuously. In `private` mode, automerge-gate stays at GitHub's `Expected — Waiting for status to be reported` until a maintainer clicks **Enable Auto Merge** or a write-access reviewer approves; only then does it poll and post a verdict. The merge happens through GitHub's native auto-merge, not the action. If your team treats Approve as "looks good" rather than "ready to merge", drop the `pull_request_review` trigger so only Enable Auto Merge starts the gate.
 - **Re-evaluation on push.** With Auto Merge enabled, pushing a new commit re-runs the gate against the new SHA automatically — no disable→enable cycle.
+- **Duplicate check_runs are not collapsed by default.** merge-gatekeeper reads the ref-level `commits/{sha}/check-runs` endpoint, whose `filter=latest` default silently evaluates only the newest run per check name. automerge-gate enumerates check_runs per check_suite (that is what attributes the `app` slug for rule matching), which surfaces superseded duplicates — e.g. the cancelled runs that `concurrency: cancel-in-progress: true` leaves on a SHA when the same workflow fires twice for it. Those cancelled runs fail the gate unless the affected workflows are opted into latest-run-wins evaluation with [`dedup-checks`](../README.md#dedup-checks). The opt-in is deliberate: the action never silently discards a failing run it wasn't told to. **If any workflow you aggregate uses `cancel-in-progress`, add a `dedup-checks` rule for it as part of the migration** — the inspection commands in [Discovering what to ignore](../README.md#discovering-what-to-ignore) emit rows in the rule schema both inputs share.
 - **Reviews and legacy statuses are not aggregated.** Signals that surface as PR reviews (e.g. Copilot Code Review) or as legacy commit statuses never appear in the check_run feed automerge-gate reads. Enforce those as their own required checks in the ruleset.
